@@ -1,0 +1,122 @@
+# ============================================
+# Dependencies
+# ============================================
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ============================================
+# Environment Variables
+# ============================================
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env.staging
+.env*.local
+
+# ============================================
+# Logs
+# ============================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ============================================
+# Runtime & Cache
+# ============================================
+.cache/
+.temp/
+.tmp/
+tmp/
+temp/
+
+# ============================================
+# Build Output
+# ============================================
+dist/
+build/
+out/
+.output/
+
+# ============================================
+# IDE & Editor
+# ============================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# ============================================
+# OS Generated Files
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ============================================
+# Testing
+# ============================================
+coverage/
+.nyc_output/
+*.lcov
+.jest/
+
+# ============================================
+# Database
+# ============================================
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# ============================================
+# SSL Certificates
+# ============================================
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# ============================================
+# Secrets & Credentials
+# ============================================
+secrets/
+credentials/
+*.secret
+*-credentials.json
+service-account*.json
+firebase-adminsdk*.json
+
+# ============================================
+# Miscellaneous
+# ============================================
+.vercel
+.netlify
+.render
+.turbo
+*.tsbuildinfo
+.eslintcache
+.prettierignore
