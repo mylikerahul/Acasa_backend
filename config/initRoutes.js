@@ -26,7 +26,7 @@ import projectsRoutes from '../routes/projects/project.routes.js';
 import unitsRoutes from '../routes/units/units.routes.js';
 
 // --- Locations ---
-import citiesRoutes from '../routes/location/cities.routes.js';
+import citiesRoutes from '../routes/cities/cities.routes.js';
 import dealsRoutes from '../routes/Deals/Deals.routes.js';
 import citiesDataRoutes from '../routes/location/cities_data.routes.js';
 import areasRoutes from '../routes/areas/areas.routes.js';
@@ -72,6 +72,7 @@ import noticesRoutes from '../routes/notices/notices.routes.js';
 import taskRoutes from '../routes/task/task.routes.js';
 import activityRoutes from '../routes/activity/activity.routes.js';
 import analyticsRoutes from '../routes/analytics/analytics.routes.js';
+import subCommunitiesRoutes from '../routes/sub_community/sub_community.routes.js';
 
 /**
  * API version prefix
@@ -243,6 +244,11 @@ const ROUTES_CONFIG = [
       {
         path: '/enquiries',
         handler: enquireRoutes,
+        description: 'Customer enquiries'
+      },
+      {
+        path: '/sub-communities',
+        handler: subCommunitiesRoutes,
         description: 'Customer enquiries'
       },
       {

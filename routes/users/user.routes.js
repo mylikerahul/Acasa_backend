@@ -11,7 +11,7 @@ const avatarUpload = createUploader('avatars', {
   allowedTypes: ['image/jpeg', 'image/png', 'image/webp']
 });
 
-// ==================== PUBLIC ROUTES ====================
+// =v=================== PUBLIC ROUTES ====================
 
 // Authentication
 router.post('/register', avatarUpload.single('image'), userController.registerUser);

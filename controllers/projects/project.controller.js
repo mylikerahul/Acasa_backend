@@ -5,37 +5,37 @@ import catchAsyncErrors from '../../middleware/catchAsyncErrors.js';
 import ErrorHandler from '../../utils/errorHandler.js';
 
 // ==================== CONSTANTS ====================
-const UPLOAD_BASE_PATH = 'uploads'; // Must match UPLOAD_BASE_PATH in uploads.js
+const UPLOAD_BASE_PATH = 'uploads';
 const ITEMS_PER_PAGE = 20;
+const API_BASE_URL = process.env.API_URL;
 
-// Access API_URL from environment variable (ensure it's available in Node.js env)
-const API_BASE_URL = process.env.API_URL || 'http://localhost:8080';
+// ==================== FIELDS THAT GO TO SPECS TABLE ====================
+const SPECS_FIELDS = [
+  'ReraNumber',
+  'DeveloperName', 
+  'CompanyName',
+  'MaxArea',
+  'MinArea',
+  'MaxPrice',
+  'MinPrice',
+  'Latitude',
+  'Longitude',
+];
 
-// ==================== HELPER FUNCTIONS FOR CONTROLLER ====================
-
-/**
- * Converts an absolute file path from Multer to a path relative to the 'uploads' directory.
- * E.g., 'E:\project\backend\uploads\projects\image.jpg' -> 'uploads/projects/image.jpg'
- * Or if Multer already provides 'uploads/projects/image.jpg', it keeps it.
- */
+// ==================== HELPER FUNCTIONS ====================
 const getRelativeUploadPath = (absolutePath) => {
   if (!absolutePath) return null;
-  // Normalize path separators to '/' for consistency
   const normalizedPath = absolutePath.replace(/\\/g, '/');
-  // Find the index of the UPLOAD_BASE_PATH segment
   const uploadsIndex = normalizedPath.indexOf(UPLOAD_BASE_PATH + '/');
   if (uploadsIndex !== -1) {
-    return normalizedPath.substring(uploadsIndex); // Return path from 'uploads/' onwards
+    return normalizedPath.substring(uploadsIndex);
   }
-  return normalizedPath; // Fallback, assume it's already relative or remote
+  return normalizedPath;
 };
 
-// Helper to build full URL for images/files from their relative paths
 const buildFullUrl = (relativePath) => {
   if (!relativePath) return null;
-  // If it's already a full URL (e.g., from an external service), return as is
   if (/^https?:\/\//i.test(relativePath)) return relativePath;
-  // Remove leading slash if any, then construct full URL
   const cleanPath = relativePath.replace(/^\/+/, '');
   return `${API_BASE_URL}/${cleanPath}`;
 };
@@ -46,8 +46,7 @@ const generateSlug = (title) => {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '')
-    // Add a short hash or timestamp for better uniqueness without relying on DB check for initial generation
-    + '-' + Math.random().toString(36).substring(2, 8); 
+    + '-' + Math.random().toString(36).substring(2, 8);
 };
 
 const processUploadedFiles = (files) => {
@@ -77,67 +76,88 @@ const processUploadedFiles = (files) => {
   return result;
 };
 
-// ==================== DATA TRANSFORMATION FOR FRONTEND ====================
-// This function prepares project data for consistent frontend consumption
+/**
+ * Separates project data from specs data
+ * @param {Object} body - Request body
+ * @returns {Object} { projectData, specsData }
+ */
+const separateProjectAndSpecs = (body) => {
+  const projectData = {};
+  const specsData = {};
+
+  Object.keys(body).forEach(key => {
+    const value = body[key];
+    
+    // Skip null, undefined, empty strings
+    if (value === null || value === undefined || value === '') {
+      return;
+    }
+
+    // Skip the 'specs' JSON field - we'll handle it separately
+    if (key === 'specs') {
+      return;
+    }
+
+    // Check if this field belongs to specs table
+    if (SPECS_FIELDS.includes(key)) {
+      specsData[key] = value;
+    } else {
+      projectData[key] = value;
+    }
+  });
+
+  // Handle specs JSON if sent as a string
+  if (body.specs) {
+    try {
+      const parsedSpecs = typeof body.specs === 'string' 
+        ? JSON.parse(body.specs) 
+        : body.specs;
+      
+      // Merge parsed specs into specsData
+      Object.assign(specsData, parsedSpecs);
+    } catch (e) {
+      console.error('Failed to parse specs JSON:', e);
+    }
+  }
+
+  return { projectData, specsData };
+};
+
 const prepareProjectForFrontend = (project) => {
   if (!project) return null;
 
-  // Clone to avoid modifying original model data
   const transformedProject = { ...project };
 
-  // Ensure main image URL is a full path for frontend
   transformedProject.featured_image = buildFullUrl(project.featured_image);
-  
-  // Combine latitude/longitude from main table or specs
-  transformedProject.latitude = project.latitude || project.latitude_specs || null;
-  transformedProject.longitude = project.longitude || project.longitude_specs || null;
-  
-  // Transform gallery images to full URLs
+  transformedProject.latitude = project.latitude || project.Latitude || null;
+  transformedProject.longitude = project.longitude || project.Longitude || null;
+
   if (project.gallery && Array.isArray(project.gallery)) {
-    transformedProject.images = project.gallery.map(img => buildFullUrl(img.Url || img)); // Assuming img is { Url: 'path' } or just 'path'
+    transformedProject.images = project.gallery.map(img => buildFullUrl(img.Url || img));
   } else {
     transformedProject.images = [];
   }
 
-  // Set developer name from main table or specs
-  transformedProject.developerName = project.DeveloperName || project.developer_name_specs || '';
+  transformedProject.developerName = project.DeveloperName || '';
 
-  // Add a simple slug if not present, useful for frontend routing
   if (!transformedProject.project_slug && transformedProject.id) {
-    transformedProject.slug = String(transformedProject.id); // Fallback slug if actual slug is missing
+    transformedProject.slug = String(transformedProject.id);
   } else if (transformedProject.project_slug) {
-     transformedProject.slug = transformedProject.project_slug;
+    transformedProject.slug = transformedProject.project_slug;
   } else {
     transformedProject.slug = '';
   }
 
-  // Map bedroom field from VARCHAR to int ranges if available
-  // You might need to parse `project.bedroom` here if it's a single value like "2 BHK"
-  // For now, assuming you have `bedrooms_from` and `bedrooms_to` or similar direct fields
-  transformedProject.bedroomsFrom = Number(project.bedroom?.split('-')[0].trim()) || 0; // Example parsing "2 - 3"
-  transformedProject.bedroomsTo = Number(project.bedroom?.split('-')[1]?.trim()) || transformedProject.bedroomsFrom || 0;
-
-  // Cleanup redundant fields that were used for transformation
-  delete transformedProject.developer_name_specs;
-  delete transformedProject.latitude_specs;
-  delete transformedProject.longitude_specs;
-  delete transformedProject.gallery; // Remove raw gallery data as we put it into `images`
-  delete transformedProject.thumbnail; // Use featured_image or first in images array in frontend
-  
-  // Convert featured_project (VARCHAR '0'/'1') to boolean
-  transformedProject.featured = project.featured_project === '1';
-
-  // Extract handover date (assuming completion_date is the handover date)
-  transformedProject.handoverDate = project.completion_date || ''; // Format this in frontend if needed
+  transformedProject.featured = project.featured_project === '1' || project.featured_project === 1;
+  transformedProject.handoverDate = project.completion_date || '';
 
   return transformedProject;
 };
 
-
 // ==================== TABLE INITIALIZATION ====================
 export const initializeTables = catchAsyncErrors(async (req, res, next) => {
   const result = await ProjectModel.createProjectTables();
-  
+
   res.status(200).json({
     success: true,
     message: result.message
@@ -146,54 +166,64 @@ export const initializeTables = catchAsyncErrors(async (req, res, next) => {
 
 // ==================== CREATE PROJECT ====================
 export const createProject = catchAsyncErrors(async (req, res, next) => {
-  const uploadedFiles = processUploadedFiles(req.files || {});
+  console.log('=== CREATE PROJECT START ===');
+  console.log('Request body keys:', Object.keys(req.body));
   
-  // Auto-generate slug if not provided, or ensure it's valid
-  if (!req.body.project_slug && req.body.ProjectName) {
-    req.body.project_slug = generateSlug(req.body.ProjectName);
-  } else if (!req.body.project_slug) { // Fallback if no project name
-    req.body.project_slug = generateSlug('untitled-project');
+  const uploadedFiles = processUploadedFiles(req.files || {});
+
+  // Separate project fields from specs fields
+  const { projectData, specsData } = separateProjectAndSpecs(req.body);
+
+  console.log('Project data fields:', Object.keys(projectData));
+  console.log('Specs data:', specsData);
+
+  // Auto-generate slug if not provided
+  if (!projectData.project_slug && projectData.ProjectName) {
+    projectData.project_slug = generateSlug(projectData.ProjectName);
+  } else if (!projectData.project_slug) {
+    projectData.project_slug = generateSlug('untitled-project');
   }
 
   // Set user_id from authenticated user
-  req.body.user_id = req.user.id; // Assumes req.user is set by auth middleware
+  projectData.user_id = req.user?.id || projectData.user_id || 1;
 
-  // Set featured_image from uploaded path (relative path to uploads folder)
+  // Set featured_image from uploaded path
   if (uploadedFiles.featured_image_path) {
-    req.body.featured_image = uploadedFiles.featured_image_path;
+    projectData.featured_image = uploadedFiles.featured_image_path;
   }
 
-  // Prepare gallery images for related insert
+  // Prepare related data
   const relatedData = {};
-  
+
+  // Gallery images
   if (uploadedFiles.gallery_image_paths.length > 0) {
     relatedData.gallery = uploadedFiles.gallery_image_paths.map(url => ({ Url: url }));
   }
-  // Add floor plans and documents if needed to relatedData or main body
+
+  // Floor plans and documents
   if (uploadedFiles.floor_plan_paths.length > 0) {
-    req.body.floor_plans = JSON.stringify(uploadedFiles.floor_plan_paths); // Store relative paths as JSON string
+    projectData.floor_plans = JSON.stringify(uploadedFiles.floor_plan_paths);
   }
   if (uploadedFiles.document_paths.length > 0) {
-    req.body.documents = JSON.stringify(uploadedFiles.document_paths); // Store relative paths as JSON string
+    projectData.documents = JSON.stringify(uploadedFiles.document_paths);
   }
 
-  // Prepare specs if provided
-  if (req.body.specs) {
-    try {
-      relatedData.specs = typeof req.body.specs === 'string' 
-        ? JSON.parse(req.body.specs) 
-        : req.body.specs;
-    } catch (e) {
-      return next(new ErrorHandler('Invalid specs data format. Must be valid JSON.', 400));
-    }
+  // Add specs to related data if we have any
+  if (Object.keys(specsData).length > 0) {
+    relatedData.specs = specsData;
   }
 
-  const result = await ProjectModel.createProject(req.body, relatedData);
+  console.log('Final project data:', projectData);
+  console.log('Related data:', relatedData);
+
+  const result = await ProjectModel.createProject(projectData, relatedData);
+
+  console.log('=== CREATE PROJECT END ===');
 
   res.status(201).json({
     success: true,
     message: result.message,
-    data: prepareProjectForFrontend(result.data), // Prepare for frontend
+    data: prepareProjectForFrontend(result.data),
     projectId: result.projectId
   });
 });
@@ -201,7 +231,7 @@ export const createProject = catchAsyncErrors(async (req, res, next) => {
 // ==================== GET ALL PROJECTS ====================
 export const getAllProjects = catchAsyncErrors(async (req, res, next) => {
   const filters = {
-    status: req.query.status ? parseInt(req.query.status) : undefined, // Allow frontend to filter by status
+    status: req.query.status !== undefined ? parseInt(req.query.status) : undefined,
     city_id: req.query.city_id,
     state_id: req.query.state_id,
     community_id: req.query.community_id,
@@ -212,13 +242,13 @@ export const getAllProjects = catchAsyncErrors(async (req, res, next) => {
     min_price: req.query.min_price,
     max_price: req.query.max_price,
     bedroom: req.query.bedroom,
-    featured_only: req.query.featured_only === 'true', // Convert to boolean
+    featured_only: req.query.featured_only === 'true',
     verified_only: req.query.verified_only === 'true',
     search: req.query.search,
     user_id: req.query.user_id,
-    sort_by: req.query.sort_by || req.query.orderBy || 'newest', // Default to 'newest'
+    sort_by: req.query.sort_by || req.query.orderBy || 'newest',
     sort_order: req.query.sort_order || req.query.order || 'desc',
-    include_inactive: req.query.include_inactive === 'true' // For admin view
+    include_inactive: req.query.include_inactive === 'true'
   };
 
   const pagination = {
@@ -228,20 +258,23 @@ export const getAllProjects = catchAsyncErrors(async (req, res, next) => {
 
   const result = await ProjectModel.getAllProjects(filters, pagination);
 
-  // Transform each project for frontend consumption
   const listings = result.data.map(prepareProjectForFrontend);
 
   res.status(200).json({
     success: true,
     message: result.message || "Projects fetched successfully",
-    listings: listings, // Changed to 'listings' for frontend consistency
+    projects: listings,  // Added for frontend compatibility
+    listings: listings,
+    data: listings,      // Added for frontend compatibility
+    total: result.pagination.total,
     pagination: {
       currentPage: result.pagination.page,
       limit: result.pagination.limit,
+      total: result.pagination.total,
       totalItems: result.pagination.total,
       totalPages: result.pagination.totalPages,
     },
-    filters: filters // Return applied filters for client-side reference
+    filters: filters
   });
 });
 
@@ -262,7 +295,7 @@ export const getProjectById = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({
     success: true,
     message: result.message || 'Project fetched successfully',
-    data: prepareProjectForFrontend(result.data) // Prepare for frontend
+    data: prepareProjectForFrontend(result.data)
   });
 });
 
@@ -283,7 +316,7 @@ export const getProjectBySlug = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({
     success: true,
     message: result.message || 'Project fetched successfully',
-    data: prepareProjectForFrontend(result.data) // Prepare for frontend
+    data: prepareProjectForFrontend(result.data)
   });
 });
 
@@ -295,45 +328,55 @@ export const updateProject = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('Invalid project ID for update', 400));
   }
 
-  const uploadedFiles = processUploadedFiles(req.files || {});
-  const updateData = { ...req.body };
+  console.log('=== UPDATE PROJECT START ===');
+  console.log('Project ID:', id);
+  console.log('Request body keys:', Object.keys(req.body));
 
-  // Update featured_image if new one uploaded (relative path to uploads folder)
+  const uploadedFiles = processUploadedFiles(req.files || {});
+
+  // Separate project fields from specs fields
+  const { projectData, specsData } = separateProjectAndSpecs(req.body);
+
+  console.log('Project data fields:', Object.keys(projectData));
+  console.log('Specs data:', specsData);
+
+  // Update featured_image if new one uploaded
   if (uploadedFiles.featured_image_path) {
-    updateData.featured_image = uploadedFiles.featured_image_path;
+    projectData.featured_image = uploadedFiles.featured_image_path;
   }
-   // Update floor plans and documents if new ones uploaded (relative paths)
+
+  // Update floor plans and documents if new ones uploaded
   if (uploadedFiles.floor_plan_paths.length > 0) {
-    updateData.floor_plans = JSON.stringify(uploadedFiles.floor_plan_paths);
+    projectData.floor_plans = JSON.stringify(uploadedFiles.floor_plan_paths);
   }
   if (uploadedFiles.document_paths.length > 0) {
-    updateData.documents = JSON.stringify(uploadedFiles.document_paths);
+    projectData.documents = JSON.stringify(uploadedFiles.document_paths);
   }
 
   // Prepare related updates
   const relatedUpdates = {};
 
-  // Add new gallery images if uploaded (assuming these are appended or managed separately)
+  // Add new gallery images if uploaded
   if (uploadedFiles.gallery_image_paths.length > 0) {
     relatedUpdates.gallery = uploadedFiles.gallery_image_paths.map(url => ({ Url: url }));
   }
-  // Handle explicit gallery clear if sent as `gallery: null`
+
+  // Handle explicit gallery clear
   if (req.body.gallery_clear === 'true') {
-    relatedUpdates.gallery = []; // Send empty array to model to clear existing
+    relatedUpdates.gallery = [];
   }
 
-  // Update specs if provided
-  if (req.body.specs) {
-    try {
-      relatedUpdates.specs = typeof req.body.specs === 'string' 
-        ? JSON.parse(req.body.specs) 
-        : req.body.specs;
-    } catch (e) {
-      return next(new ErrorHandler('Invalid specs data format. Must be valid JSON.', 400));
-    }
+  // Add specs to related updates if we have any
+  if (Object.keys(specsData).length > 0) {
+    relatedUpdates.specs = specsData;
   }
 
-  const result = await ProjectModel.updateProject(id, updateData, relatedUpdates);
+  console.log('Final project data:', projectData);
+  console.log('Related updates:', relatedUpdates);
+
+  const result = await ProjectModel.updateProject(id, projectData, relatedUpdates);
+
+  console.log('=== UPDATE PROJECT END ===');
 
   if (!result.success) {
     return next(new ErrorHandler(result.message || 'Failed to update project', 400));
@@ -342,7 +385,7 @@ export const updateProject = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({
     success: true,
     message: result.message || 'Project updated successfully',
-    data: prepareProjectForFrontend(result.data) // Prepare for frontend
+    data: prepareProjectForFrontend(result.data)
   });
 });
 
@@ -376,7 +419,7 @@ export const deleteProject = catchAsyncErrors(async (req, res, next) => {
 export const searchProjects = catchAsyncErrors(async (req, res, next) => {
   const searchCriteria = {
     keyword: req.query.keyword || req.query.search,
-    status: req.query.status ? parseInt(req.query.status) : undefined,
+    status: req.query.status !== undefined ? parseInt(req.query.status) : undefined,
     city_id: req.query.city_id,
     state_id: req.query.state_id,
     min_price: req.query.min_price,
@@ -414,9 +457,9 @@ export const searchProjects = catchAsyncErrors(async (req, res, next) => {
 // ==================== FEATURED PROJECTS ====================
 export const getFeaturedProjects = catchAsyncErrors(async (req, res, next) => {
   const limit = parseInt(req.query.limit) || 10;
-  
+
   const result = await ProjectModel.getAllProjects(
-    { featured_only: true, status: 1, sort_by: 'newest' }, // Explicitly ask for active & featured
+    { featured_only: true, status: 1, sort_by: 'newest' },
     { page: 1, limit: limit }
   );
 
@@ -486,7 +529,7 @@ export const addGalleryImages = catchAsyncErrors(async (req, res, next) => {
   }
 
   const uploadedFiles = processUploadedFiles(req.files || {});
-  
+
   if (uploadedFiles.gallery_image_paths.length === 0) {
     return next(new ErrorHandler('No images provided for gallery upload', 400));
   }
@@ -576,7 +619,7 @@ export const getProjectStatistics = catchAsyncErrors(async (req, res, next) => {
 });
 
 export const getDashboardData = catchAsyncErrors(async (req, res, next) => {
-  const userId = req.query.user_id || req.user.id;
+  const userId = req.query.user_id || req.user?.id;
 
   const [stats, recentProjectsResult] = await Promise.all([
     ProjectModel.getProjectStatistics({ user_id: userId }),
@@ -642,19 +685,17 @@ export const exportProjects = catchAsyncErrors(async (req, res, next) => {
     user_id: req.query.user_id,
     city_id: req.query.city_id,
     developer_id: req.query.developer_id,
-    status: req.query.status ? parseInt(req.query.status) : undefined,
+    status: req.query.status !== undefined ? parseInt(req.query.status) : undefined,
     include_inactive: req.query.include_inactive === 'true'
   };
 
   const result = await ProjectModel.getAllProjects(filters, { page: 1, limit: 10000 });
 
-  // Transform data slightly for CSV, but don't need full frontend prep
   const projectsForCsv = result.data.map(p => ({
     ...p,
-    featured_image_url: buildFullUrl(p.featured_image) // Ensure image URL is absolute in CSV
+    featured_image_url: buildFullUrl(p.featured_image)
   }));
 
-  // Convert to CSV
   const headers = ['ID', 'Project Name', 'City', 'Price', 'Property Type', 'Status', 'Featured Image URL', 'Created At'];
   const csvData = projectsForCsv.map(p => [
     p.id,
@@ -663,7 +704,7 @@ export const exportProjects = catchAsyncErrors(async (req, res, next) => {
     p.price || '',
     p.property_type || '',
     p.status === 1 ? 'Active' : 'Inactive',
-    p.featured_image_url || '', // Use the full URL
+    p.featured_image_url || '',
     p.created_at
   ]);
 

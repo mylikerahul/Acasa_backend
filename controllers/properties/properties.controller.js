@@ -8,7 +8,7 @@ import ErrorHandler from '../../utils/errorHandler.js';
 const UPLOAD_BASE_PATH = 'uploads'; // Must match UPLOAD_BASE_PATH in uploads.js
 const ITEMS_PER_PAGE = 20;
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:8080';
+const API_BASE_URL = process.env.API_URL ;
 
 // Validation constants, might be redundant with propertyValidator.js
 const VALID_STATUSES = ['draft', 'pending', 'published', 'unpublished', 'sold', 'rented', 'inactive', 'deleted', 'active'];
@@ -146,112 +146,74 @@ export const initializeTables = catchAsyncErrors(async (req, res, next) => {
 // @route   POST /api/v1/properties
 // @access  Private
 export const createProperty = catchAsyncErrors(async (req, res, next) => {
-  let propertyData;
-  let relatedData = {};
+  const propertyData = req.body;
+
+  // Manual validation - check for either text or ID fields
+  if (!propertyData.property_name) return next(new ErrorHandler('Property name is required', 400));
+  if (!propertyData.price) return next(new ErrorHandler('Price is required', 400));
+  if (!propertyData.bedroom) return next(new ErrorHandler('Bedrooms is required', 400));
   
-  if (req.body && req.body.property) {
-    propertyData = req.body.property;
-    relatedData = req.body.related || {};
-  } else if (req.body && Object.keys(req.body).length > 0) {
-    propertyData = req.body;
-  } else {
-    return next(new ErrorHandler('Request body is empty', 400));
+  // Accept either city/community text OR city_id/community_id
+  if (!propertyData.city && !propertyData.city_id) {
+    return next(new ErrorHandler('City is required (city or city_id)', 400));
   }
-  
-  // Get user ID from request (assuming user is attached by auth middleware)
-  const userId = req.user ? req.user.id : (propertyData.user_id || 1); // Fallback to 1 if no user
-
-  // Process uploaded files and get relative paths
-  const uploadedFiles = processUploadedFiles(req.files || {});
-
-  // Prepare propertyData for model
-  const finalPropertyData = { ...propertyData };
-
-  // Set property_slug if not provided
-  if (!finalPropertyData.property_slug && finalPropertyData.property_name) {
-    finalPropertyData.property_slug = generateSlug(finalPropertyData.property_name);
-  } else if (!finalPropertyData.property_slug) {
-    finalPropertyData.property_slug = generateSlug('untitled-property'); // Fallback
+  if (!propertyData.community && !propertyData.community_id) {
+    return next(new ErrorHandler('Community is required (community or community_id)', 400));
   }
 
-  // Set user_id
-  finalPropertyData.user_id = userId;
+  // Build location string from city/community text if provided
+  const locationString = [propertyData.community, propertyData.city].filter(Boolean).join(', ');
 
-  // Set featured_image from uploaded path (relative path to uploads folder)
-  if (uploadedFiles.featured_image_path) {
-    finalPropertyData.featured_image = uploadedFiles.featured_image_path;
-  }
-
-  // Handle gallery images
-  if (uploadedFiles.gallery_image_paths.length > 0) {
-    relatedData.gallery = uploadedFiles.gallery_image_paths.map(url => ({ Url: url }));
-  }
-  // Add floor plans and documents if needed to relatedData or main body
-  if (uploadedFiles.floor_plan_paths.length > 0) {
-    finalPropertyData.floor_media_ids = JSON.stringify(uploadedFiles.floor_plan_paths); // Store relative paths as JSON string
-  }
-  if (uploadedFiles.document_paths.length > 0) {
-    finalPropertyData.documents_id = JSON.stringify(uploadedFiles.document_paths); // Store relative paths as JSON string
-  }
-  
-  // Set default status (1 = active) if not provided
-  if (!finalPropertyData.status) {
-    finalPropertyData.status = 1;
-  } else {
-    finalPropertyData.status = Number(finalPropertyData.status);
-  }
-
-  // Ensure proper data types for numbers
-  finalPropertyData.price = Number(finalPropertyData.price) || 0;
-  finalPropertyData.area = Number(finalPropertyData.area) || 0;
-  finalPropertyData.currency_id = Number(finalPropertyData.currency_id) || 1;
-  finalPropertyData.developer_id = Number(finalPropertyData.developer_id) || 1;
-  finalPropertyData.city_id = Number(finalPropertyData.city_id) || 1;
-  finalPropertyData.community_id = Number(finalPropertyData.community_id) || 1;
-  finalPropertyData.sub_community_id = Number(finalPropertyData.sub_community_id) || 1;
-  finalPropertyData.bedroom = String(finalPropertyData.bedroom || '0'); // Ensure string for DB
-  finalPropertyData.bathrooms = Number(finalPropertyData.bathrooms) || 0;
-
-
-  // Set default values for other fields if not provided
-  const defaults = {
-    listing_type: 'sale',
-    property_type: 'Apartment',
-    property_purpose: 'Sale',
-    description: '',
-    address: '',
-    location: '',
-    featured_property: '0'
+  const finalData = {
+    property_name: propertyData.property_name,
+    property_slug: propertyData.property_slug || generateSlug(propertyData.property_name),
+    listing_type: propertyData.listing_type || 'sale',
+    property_type: propertyData.property_type || 'Apartment',
+    property_purpose: propertyData.property_purpose || 'Sale',
+    status: propertyData.status || 1,
+    user_id: req.user ? req.user.id : (propertyData.user_id || 1),
+    developer_id: propertyData.developer_id || 1,
+    currency_id: propertyData.currency_id || 1,
+    
+    // Use IDs for database - NOT text fields
+    city_id: Number(propertyData.city_id) || 1,
+    community_id: Number(propertyData.community_id) || 1,
+    sub_community_id: Number(propertyData.sub_community_id) || 1,
+    
+    // Store text in location/address fields
+    location: propertyData.location || locationString,
+    address: propertyData.address || locationString,
+    
+    price: Number(propertyData.price),
+    area: propertyData.area ? Number(propertyData.area) : 0,
+    bedroom: String(propertyData.bedroom),
+    bathrooms: Number(propertyData.bathrooms) || 0,
+    
+    // Optional fields
+    description: propertyData.description || '',
+    amenities: propertyData.amenities || '',
+    property_features: propertyData.property_features || '',
+    featured_property: propertyData.featured_property || '0',
+    video_url: propertyData.video_url || '',
+    map_latitude: propertyData.map_latitude || '',
+    map_longitude: propertyData.map_longitude || '',
   };
-  Object.keys(defaults).forEach(key => {
-    if (finalPropertyData[key] === undefined || finalPropertyData[key] === null) {
-      finalPropertyData[key] = defaults[key];
-    }
-  });
 
-  // Build location string if not explicitly set
-  if (!finalPropertyData.location && (propertyData.city || propertyData.community)) {
-    finalPropertyData.location = [propertyData.city, propertyData.community].filter(Boolean).join(', ');
-  }
-
+  // DO NOT include 'city' and 'community' text fields - they don't exist in database
 
   try {
-    const result = await PropertyModel.createProperty(finalPropertyData, relatedData);
+    const result = await PropertyModel.createProperty(finalData, {});
 
     res.status(201).json({
       success: true,
-      message: result.message || 'Property created successfully',
+      message: 'Property created successfully',
       data: preparePropertyForFrontend(result.data),
-      propertyId: result.propertyId,
-      relatedIds: result.relatedIds
+      propertyId: result.propertyId
     });
   } catch (error) {
-    // console.error("Database error during createProperty:", error); // Keep error logging
+    console.error("Error in simpleCreateProperty controller:", error);
     if (error.message.includes('already exists')) {
-      return next(new ErrorHandler('Property with this slug already exists', 409));
-    }
-    if (error.code === 'ER_NO_REFERENCED_ROW_2' || error.message.includes('foreign key constraint fails')) {
-      return next(new ErrorHandler('Invalid reference ID (e.g., user, city, community, developer)', 400));
+      return next(new ErrorHandler(error.message, 409));
     }
     return next(new ErrorHandler(error.message || 'Failed to create property', 500));
   }

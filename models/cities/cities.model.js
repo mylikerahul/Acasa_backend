@@ -1,9 +1,9 @@
 import pool from '../../config/db.js';
 
-const TABLE_NAME = 'community';
+const TABLE_NAME = 'cities';
 
 // ==================== TABLE MANAGEMENT ====================
-export const createCommunityTable = async () => {
+export const createCitiesTable = async () => {
   let connection;
   
   try {
@@ -19,50 +19,37 @@ export const createCommunityTable = async () => {
       const createTableQuery = `
         CREATE TABLE ${TABLE_NAME} (
           id INT PRIMARY KEY AUTO_INCREMENT,
-          community_id VARCHAR(100) NULL, 
-          name VARCHAR(255) NOT NULL,
           country_id INT NULL,
           state_id INT NULL,
-          city_id INT NULL,
+          city_data_id VARCHAR(100) NULL,
+          name VARCHAR(255) NOT NULL,
           slug VARCHAR(255) NOT NULL,
           latitude DECIMAL(10, 8) NULL,
           longitude DECIMAL(11, 8) NULL,
           img TEXT NULL,
-          school_img TEXT NULL,
-          hotel_img TEXT NULL,
-          hospital_img TEXT NULL,
-          train_img TEXT NULL,
-          bus_img TEXT NULL,
           description TEXT NULL,
-          top_community TINYINT(1) DEFAULT 0,
-          top_projects TEXT NULL,
-          featured_project TEXT NULL,
-          related_blog TEXT NULL,
-          properties TEXT NULL,
-          similar_location TEXT NULL,
-          sales_director VARCHAR(255) NULL,
-          seo_slug VARCHAR(255) NULL,
           seo_title VARCHAR(255) NULL,
           seo_keyword VARCHAR(255) NULL,
           seo_description TEXT NULL,
-          featured TINYINT(1) DEFAULT 0,
           status VARCHAR(20) DEFAULT 'active',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          UNIQUE KEY unique_slug (slug)
+          UNIQUE KEY unique_slug (slug),
+          INDEX idx_country_id (country_id),
+          INDEX idx_status (status)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `;
       await connection.query(createTableQuery);
-      console.log('✅ Community table created successfully');
+      console.log('✅ Cities table created successfully');
     } else {
       // Table exists - fix columns
-      console.log('📦 Community table exists, fixing column types...');
+      console.log('📦 Cities table exists, fixing column types...');
       await fixTableColumns(connection);
     }
     
     return { success: true, message: 'Table ready' };
   } catch (error) {
-    console.error('Error with community table:', error.message);
+    console.error('Error with cities table:', error.message);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -71,20 +58,18 @@ export const createCommunityTable = async () => {
 
 // Fix existing table columns
 const fixTableColumns = async (connection) => {
-  // First, fix the status column type from INT to VARCHAR
+  // First, fix the status column type from INT to VARCHAR if needed
   try {
-    // Check current status column type
     const [columns] = await connection.query(`SHOW COLUMNS FROM ${TABLE_NAME} LIKE 'status'`);
     
     if (columns.length > 0) {
       const columnType = columns[0].Type.toLowerCase();
       console.log('📦 Current status column type:', columnType);
       
-      // If status is INT, we need to convert it
       if (columnType.includes('int')) {
         console.log('🔄 Converting status column from INT to VARCHAR...');
         
-        // First, update existing values: 1 -> 'active', 0 -> 'inactive'
+        // Update existing values: 1 -> 'active', 0 -> 'inactive'
         await connection.query(`
           UPDATE ${TABLE_NAME} 
           SET status = CASE 
@@ -94,7 +79,7 @@ const fixTableColumns = async (connection) => {
           END
         `).catch(() => {});
         
-        // Then change column type
+        // Change column type
         await connection.query(`
           ALTER TABLE ${TABLE_NAME} 
           MODIFY COLUMN status VARCHAR(20) DEFAULT 'active'
@@ -107,31 +92,17 @@ const fixTableColumns = async (connection) => {
     console.log('⚠️ Could not fix status column:', e.message);
   }
 
-  // Fix all other columns to allow NULL
+  // Fix all columns to allow NULL
   const alterQueries = [
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN community_id VARCHAR(100) NULL`,
     `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN country_id INT NULL`,
     `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN state_id INT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN city_id INT NULL`,
+    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN city_data_id VARCHAR(100) NULL`,
     `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN latitude DECIMAL(10, 8) NULL`,
     `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN longitude DECIMAL(11, 8) NULL`,
     `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN img TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN school_img TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN hotel_img TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN hospital_img TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN train_img TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN bus_img TEXT NULL`,
     `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN description TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN top_projects TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN featured_project TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN related_blog TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN properties TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN similar_location TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN seo_slug VARCHAR(255) NULL`,
     `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN seo_title VARCHAR(255) NULL`,
     `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN seo_description TEXT NULL`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN top_community TINYINT(1) DEFAULT 0`,
-    `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN featured TINYINT(1) DEFAULT 0`,
   ];
 
   for (const query of alterQueries) {
@@ -142,15 +113,11 @@ const fixTableColumns = async (connection) => {
     }
   }
 
-  // Handle column name typos
+  // Handle column name typos (seo_keywork -> seo_keyword)
   const columnFixes = [
     { 
       check: `SHOW COLUMNS FROM ${TABLE_NAME} LIKE 'seo_keywork'`,
       fix: `ALTER TABLE ${TABLE_NAME} CHANGE COLUMN seo_keywork seo_keyword VARCHAR(255) NULL`
-    },
-    { 
-      check: `SHOW COLUMNS FROM ${TABLE_NAME} LIKE 'sales_diretor'`,
-      fix: `ALTER TABLE ${TABLE_NAME} CHANGE COLUMN sales_diretor sales_director VARCHAR(255) NULL`
     },
   ];
 
@@ -159,50 +126,39 @@ const fixTableColumns = async (connection) => {
       const [cols] = await connection.query(check);
       if (cols.length > 0) {
         await connection.query(fix);
-        console.log('✅ Fixed column typo');
+        console.log('✅ Fixed column typo: seo_keywork -> seo_keyword');
       }
     } catch (e) {
       // Ignore
     }
   }
 
-  // Ensure seo_keyword and sales_director columns exist
-  const columnsToAdd = [
-    { name: 'seo_keyword', type: 'VARCHAR(255) NULL' },
-    { name: 'sales_director', type: 'VARCHAR(255) NULL' },
+  // Ensure seo_keyword column exists
+  try {
+    const [exists] = await connection.query(`SHOW COLUMNS FROM ${TABLE_NAME} LIKE 'seo_keyword'`);
+    if (exists.length === 0) {
+      await connection.query(`ALTER TABLE ${TABLE_NAME} ADD COLUMN seo_keyword VARCHAR(255) NULL`);
+      console.log('✅ Added column: seo_keyword');
+    }
+  } catch (e) {
+    // Ignore
+  }
+
+  // Add indexes if they don't exist
+  const indexes = [
+    { name: 'idx_country_id', column: 'country_id' },
+    { name: 'idx_status', column: 'status' },
   ];
 
-  for (const col of columnsToAdd) {
+  for (const idx of indexes) {
     try {
-      const [exists] = await connection.query(`SHOW COLUMNS FROM ${TABLE_NAME} LIKE '${col.name}'`);
-      if (exists.length === 0) {
-        await connection.query(`ALTER TABLE ${TABLE_NAME} ADD COLUMN ${col.name} ${col.type}`);
-        console.log(`✅ Added column: ${col.name}`);
-      }
+      await connection.query(`CREATE INDEX ${idx.name} ON ${TABLE_NAME} (${idx.column})`);
     } catch (e) {
-      // Ignore
+      // Index might already exist
     }
   }
 
-  console.log('✅ Table columns fixed');
-};
-
-// Get actual column info from database
-const getColumnInfo = async (connection) => {
-  try {
-    const [columns] = await connection.query(`SHOW COLUMNS FROM ${TABLE_NAME}`);
-    const info = {};
-    columns.forEach(col => {
-      info[col.Field] = {
-        type: col.Type.toLowerCase(),
-        nullable: col.Null === 'YES',
-        default: col.Default
-      };
-    });
-    return info;
-  } catch (error) {
-    return {};
-  }
+  console.log('✅ Cities table columns fixed');
 };
 
 // Get column names
@@ -274,13 +230,18 @@ export const generateUniqueSlug = async (name, excludeId = null) => {
   return slug;
 };
 
-export const checkDuplicateCommunity = async (name, excludeId = null) => {
+export const checkDuplicateCity = async (name, countryId = null, excludeId = null) => {
   let connection;
   try {
     connection = await pool.getConnection();
     
     let query = `SELECT id, name FROM ${TABLE_NAME} WHERE LOWER(name) = LOWER(?)`;
     const params = [name];
+
+    if (countryId) {
+      query += ' AND country_id = ?';
+      params.push(countryId);
+    }
 
     if (excludeId) {
       query += ' AND id != ?';
@@ -290,7 +251,7 @@ export const checkDuplicateCommunity = async (name, excludeId = null) => {
     const [rows] = await connection.query(query, params);
     return rows.length > 0 ? rows[0] : null;
   } catch (error) {
-    console.error('Error checking duplicate community:', error);
+    console.error('Error checking duplicate city:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -311,9 +272,6 @@ const normalizeResponse = (row) => {
   return {
     ...row,
     seo_keyword: row.seo_keyword || row.seo_keywork || null,
-    sales_director: row.sales_director || row.sales_diretor || null,
-    top_community: row.top_community === 1 || row.top_community === true || row.top_community === '1',
-    featured: row.featured === 1 || row.featured === true || row.featured === '1',
     status: status
   };
 };
@@ -328,13 +286,11 @@ const convertStatusForDB = async (connection, status) => {
   const statusIsInt = await isStatusInt(connection);
   
   if (statusIsInt) {
-    // Column is INT - convert to 1/0
     if (status === 'active' || status === 1 || status === '1' || status === true) {
       return 1;
     }
     return 0;
   } else {
-    // Column is VARCHAR - use string
     if (status === 1 || status === '1' || status === true || status === 'active') {
       return 'active';
     }
@@ -343,7 +299,7 @@ const convertStatusForDB = async (connection, status) => {
 };
 
 // ==================== CREATE ====================
-export const createCommunity = async (communityData) => {
+export const createCity = async (cityData) => {
   let connection;
   
   try {
@@ -355,55 +311,46 @@ export const createCommunity = async (communityData) => {
     await connection.beginTransaction();
 
     // Check for duplicate
-    const duplicate = await checkDuplicateCommunity(communityData.name);
+    const duplicate = await checkDuplicateCity(cityData.name, cityData.country_id);
     if (duplicate) {
-      throw new Error(`Community "${communityData.name}" already exists`);
+      throw new Error(`City "${cityData.name}" already exists`);
     }
 
     // Generate unique slug
-    const slug = await generateUniqueSlug(communityData.name);
-    const communityId = `COM_${Date.now()}`;
+    const slug = await generateUniqueSlug(cityData.name);
 
     // Get column info
     const existingColumns = await getTableColumns(connection);
-    const columnInfo = await getColumnInfo(connection);
     
     console.log('📦 Existing columns:', existingColumns);
 
-    // Determine correct column names for typo fields
+    // Determine correct column name for seo_keyword
     const seoKeywordCol = existingColumns.includes('seo_keyword') ? 'seo_keyword' : 
                           existingColumns.includes('seo_keywork') ? 'seo_keywork' : null;
-    
-    const salesDirectorCol = existingColumns.includes('sales_director') ? 'sales_director' :
-                             existingColumns.includes('sales_diretor') ? 'sales_diretor' : null;
 
     // Convert status value based on column type
-    const statusValue = await convertStatusForDB(connection, communityData.status || 'active');
+    const statusValue = await convertStatusForDB(connection, cityData.status || 'active');
     console.log('📦 Status value for DB:', statusValue);
 
     // Build insert data - only include columns that exist
     const insertData = {};
     
     // Required fields
-    if (existingColumns.includes('community_id')) insertData.community_id = communityId;
-    if (existingColumns.includes('name')) insertData.name = communityData.name;
+    if (existingColumns.includes('name')) insertData.name = cityData.name;
     if (existingColumns.includes('slug')) insertData.slug = slug;
     if (existingColumns.includes('status')) insertData.status = statusValue;
     
-    // Optional fields
+    // Optional fields mapping
     const optionalMappings = {
-      country_id: communityData.country_id || null,
-      state_id: communityData.state_id || null,
-      city_id: communityData.city_id || null,
-      latitude: communityData.latitude || null,
-      longitude: communityData.longitude || null,
-      img: communityData.img || null,
-      description: communityData.description || null,
-      top_community: toBoolean(communityData.top_community) ? 1 : 0,
-      featured: toBoolean(communityData.featured) ? 1 : 0,
-      seo_slug: communityData.seo_slug || slug,
-      seo_title: communityData.seo_title || communityData.name,
-      seo_description: communityData.seo_description || null,
+      country_id: cityData.country_id || null,
+      state_id: cityData.state_id || null,
+      city_data_id: cityData.city_data_id || null,
+      img: cityData.img || null,
+      latitude: cityData.latitude || null,
+      longitude: cityData.longitude || null,
+      description: cityData.description || null,
+      seo_title: cityData.seo_title || cityData.name,
+      seo_description: cityData.seo_description || null,
     };
 
     // Add optional fields if column exists
@@ -415,7 +362,7 @@ export const createCommunity = async (communityData) => {
 
     // Handle seo_keyword with correct column name
     if (seoKeywordCol) {
-      insertData[seoKeywordCol] = communityData.seo_keyword || null;
+      insertData[seoKeywordCol] = cityData.seo_keyword || null;
     }
 
     // Build and execute query
@@ -431,18 +378,18 @@ export const createCommunity = async (communityData) => {
     const [result] = await connection.query(insertQuery, values);
     await connection.commit();
 
-    // Fetch and return created community
+    // Fetch and return created city
     const [rows] = await connection.query(
       `SELECT * FROM ${TABLE_NAME} WHERE id = ?`,
       [result.insertId]
     );
 
-    console.log('✅ Community created with ID:', result.insertId);
+    console.log('✅ City created with ID:', result.insertId);
     return normalizeResponse(rows[0]);
 
   } catch (error) {
     if (connection) await connection.rollback();
-    console.error('❌ Error creating community:', error);
+    console.error('❌ Error creating city:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -450,7 +397,7 @@ export const createCommunity = async (communityData) => {
 };
 
 // ==================== READ ====================
-export const getAllCommunities = async (page = 1, limit = 10, filters = {}) => {
+export const getAllCities = async (page = 1, limit = 10, filters = {}) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -459,7 +406,6 @@ export const getAllCommunities = async (page = 1, limit = 10, filters = {}) => {
     let whereConditions = [];
     let queryParams = [];
 
-    // Check if status column is INT
     const statusIsInt = await isStatusInt(connection);
 
     if (filters.status) {
@@ -471,19 +417,14 @@ export const getAllCommunities = async (page = 1, limit = 10, filters = {}) => {
       }
     }
 
-    if (filters.city_id) {
-      whereConditions.push(`city_id = ?`);
-      queryParams.push(parseInt(filters.city_id));
-    }
-
     if (filters.country_id) {
       whereConditions.push(`country_id = ?`);
       queryParams.push(parseInt(filters.country_id));
     }
 
-    if (filters.featured !== undefined) {
-      whereConditions.push(`featured = ?`);
-      queryParams.push(filters.featured ? 1 : 0);
+    if (filters.state_id) {
+      whereConditions.push(`state_id = ?`);
+      queryParams.push(parseInt(filters.state_id));
     }
 
     if (filters.search) {
@@ -521,14 +462,14 @@ export const getAllCommunities = async (page = 1, limit = 10, filters = {}) => {
       }
     };
   } catch (error) {
-    console.error('Error fetching communities:', error);
+    console.error('Error fetching cities:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const getAllCommunitiesNoPagination = async (filters = {}) => {
+export const getAllCitiesNoPagination = async (filters = {}) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -547,9 +488,9 @@ export const getAllCommunitiesNoPagination = async (filters = {}) => {
       }
     }
 
-    if (filters.featured !== undefined) {
-      whereConditions.push(`featured = ?`);
-      queryParams.push(filters.featured ? 1 : 0);
+    if (filters.country_id) {
+      whereConditions.push(`country_id = ?`);
+      queryParams.push(parseInt(filters.country_id));
     }
 
     const whereClause = whereConditions.length > 0 
@@ -561,14 +502,14 @@ export const getAllCommunitiesNoPagination = async (filters = {}) => {
 
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error fetching all communities:', error);
+    console.error('Error fetching all cities:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const getCommunityById = async (id) => {
+export const getCityById = async (id) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -578,14 +519,14 @@ export const getCommunityById = async (id) => {
     
     return normalizeResponse(rows[0]);
   } catch (error) {
-    console.error('Error fetching community by ID:', error);
+    console.error('Error fetching city by ID:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const getCommunityBySlug = async (slug) => {
+export const getCityBySlug = async (slug) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -595,31 +536,14 @@ export const getCommunityBySlug = async (slug) => {
     
     return normalizeResponse(rows[0]);
   } catch (error) {
-    console.error('Error fetching community by slug:', error);
+    console.error('Error fetching city by slug:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const getCommunitiesByCity = async (cityId) => {
-  let connection;
-  try {
-    connection = await pool.getConnection();
-    
-    const query = `SELECT * FROM ${TABLE_NAME} WHERE city_id = ? ORDER BY name ASC`;
-    const [rows] = await connection.query(query, [cityId]);
-    
-    return rows.map(normalizeResponse);
-  } catch (error) {
-    console.error('Error fetching communities by city:', error);
-    throw error;
-  } finally {
-    if (connection) connection.release();
-  }
-};
-
-export const getCommunitiesByCountry = async (countryId) => {
+export const getCitiesByCountry = async (countryId) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -629,7 +553,24 @@ export const getCommunitiesByCountry = async (countryId) => {
     
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error fetching communities by country:', error);
+    console.error('Error fetching cities by country:', error);
+    throw error;
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+export const getCitiesByState = async (stateId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    const query = `SELECT * FROM ${TABLE_NAME} WHERE state_id = ? ORDER BY name ASC`;
+    const [rows] = await connection.query(query, [stateId]);
+    
+    return rows.map(normalizeResponse);
+  } catch (error) {
+    console.error('Error fetching cities by state:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -637,7 +578,7 @@ export const getCommunitiesByCountry = async (countryId) => {
 };
 
 // ==================== UPDATE ====================
-export const updateCommunity = async (id, updateData) => {
+export const updateCity = async (id, updateData) => {
   let connection;
   
   try {
@@ -649,16 +590,20 @@ export const updateCommunity = async (id, updateData) => {
     await connection.beginTransaction();
 
     // Check if exists
-    const existing = await getCommunityById(id);
+    const existing = await getCityById(id);
     if (!existing) {
-      throw new Error('Community not found');
+      throw new Error('City not found');
     }
 
     // Check for duplicate name
     if (updateData.name && updateData.name !== existing.name) {
-      const duplicate = await checkDuplicateCommunity(updateData.name, id);
+      const duplicate = await checkDuplicateCity(
+        updateData.name, 
+        updateData.country_id || existing.country_id,
+        id
+      );
       if (duplicate) {
-        throw new Error(`Community "${updateData.name}" already exists`);
+        throw new Error(`City "${updateData.name}" already exists`);
       }
       updateData.slug = await generateUniqueSlug(updateData.name, id);
     }
@@ -669,28 +614,21 @@ export const updateCommunity = async (id, updateData) => {
     // Determine correct column names
     const seoKeywordCol = existingColumns.includes('seo_keyword') ? 'seo_keyword' : 
                           existingColumns.includes('seo_keywork') ? 'seo_keywork' : null;
-    const salesDirectorCol = existingColumns.includes('sales_director') ? 'sales_director' : 
-                             existingColumns.includes('sales_diretor') ? 'sales_diretor' : null;
 
     // Map of input fields to actual column names
     const fieldMapping = {
       'seo_keyword': seoKeywordCol,
       'seo_keywork': seoKeywordCol,
-      'sales_director': salesDirectorCol,
-      'sales_diretor': salesDirectorCol,
     };
 
     const allowedFields = [
-      'name', 'country_id', 'state_id', 'city_id', 'slug', 'latitude', 'longitude',
-      'img', 'school_img', 'hotel_img', 'hospital_img', 'train_img', 'bus_img',
-      'description', 'top_community', 'top_projects', 'featured_project',
-      'related_blog', 'properties', 'similar_location',
-      'seo_slug', 'seo_title', 'seo_description', 'featured', 'status'
+      'name', 'country_id', 'state_id', 'city_data_id', 'slug', 
+      'img', 'latitude', 'longitude', 'description',
+      'seo_title', 'seo_description', 'status'
     ];
 
     // Add dynamic column names
     if (seoKeywordCol) allowedFields.push(seoKeywordCol);
-    if (salesDirectorCol) allowedFields.push(salesDirectorCol);
 
     const updateFields = [];
     const values = [];
@@ -707,11 +645,6 @@ export const updateCommunity = async (id, updateData) => {
       if (value === undefined) continue;
 
       let processedValue = value;
-      
-      // Handle boolean conversion
-      if (actualKey === 'top_community' || actualKey === 'featured') {
-        processedValue = toBoolean(value) ? 1 : 0;
-      }
       
       // Handle status conversion
       if (actualKey === 'status') {
@@ -749,37 +682,21 @@ export const updateCommunity = async (id, updateData) => {
     return normalizeResponse(rows[0]);
   } catch (error) {
     if (connection) await connection.rollback();
-    console.error('Error updating community:', error);
+    console.error('Error updating city:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const updateCommunityMedia = async (id, mediaField, mediaPath) => {
+export const updateCityMedia = async (id, mediaPath) => {
   let connection;
   try {
     connection = await pool.getConnection();
-    
-    const validFields = ['img', 'school_img', 'hotel_img', 'hospital_img', 'train_img', 'bus_img'];
-
-    if (!validFields.includes(mediaField)) {
-      throw new Error('Invalid media field');
-    }
-
-    // Check if column exists, add if not
-    const columns = await getTableColumns(connection);
-    if (!columns.includes(mediaField)) {
-      try {
-        await connection.query(`ALTER TABLE ${TABLE_NAME} ADD COLUMN ${mediaField} TEXT NULL`);
-      } catch (e) {
-        // Ignore
-      }
-    }
 
     const query = `
       UPDATE ${TABLE_NAME} 
-      SET ${mediaField} = ?, updated_at = CURRENT_TIMESTAMP
+      SET img = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `;
 
@@ -792,27 +709,21 @@ export const updateCommunityMedia = async (id, mediaField, mediaPath) => {
     
     return normalizeResponse(rows[0]);
   } catch (error) {
-    console.error('Error updating community media:', error);
+    console.error('Error updating city media:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const deleteCommunityMedia = async (id, mediaField) => {
+export const deleteCityMedia = async (id) => {
   let connection;
   try {
     connection = await pool.getConnection();
-    
-    const validFields = ['img', 'school_img', 'hotel_img', 'hospital_img', 'train_img', 'bus_img'];
-
-    if (!validFields.includes(mediaField)) {
-      throw new Error('Invalid media field');
-    }
 
     const query = `
       UPDATE ${TABLE_NAME} 
-      SET ${mediaField} = NULL, updated_at = CURRENT_TIMESTAMP
+      SET img = NULL, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `;
 
@@ -825,7 +736,7 @@ export const deleteCommunityMedia = async (id, mediaField) => {
     
     return normalizeResponse(rows[0]);
   } catch (error) {
-    console.error('Error deleting community media:', error);
+    console.error('Error deleting city media:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -833,7 +744,7 @@ export const deleteCommunityMedia = async (id, mediaField) => {
 };
 
 // ==================== DELETE ====================
-export const deleteCommunity = async (id) => {
+export const deleteCity = async (id) => {
   let connection;
   
   try {
@@ -846,7 +757,7 @@ export const deleteCommunity = async (id) => {
     );
 
     if (existing.length === 0) {
-      throw new Error('Community not found');
+      throw new Error('City not found');
     }
 
     await connection.query(`DELETE FROM ${TABLE_NAME} WHERE id = ?`, [id]);
@@ -855,14 +766,14 @@ export const deleteCommunity = async (id) => {
     return normalizeResponse(existing[0]);
   } catch (error) {
     if (connection) await connection.rollback();
-    console.error('Error deleting community:', error);
+    console.error('Error deleting city:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const bulkDeleteCommunities = async (ids) => {
+export const bulkDeleteCities = async (ids) => {
   let connection;
   
   try {
@@ -882,7 +793,7 @@ export const bulkDeleteCommunities = async (ids) => {
     return { deletedCount: result.affectedRows };
   } catch (error) {
     if (connection) await connection.rollback();
-    console.error('Error bulk deleting communities:', error);
+    console.error('Error bulk deleting cities:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -890,7 +801,7 @@ export const bulkDeleteCommunities = async (ids) => {
 };
 
 // ==================== STATUS ====================
-export const updateCommunityStatus = async (id, status) => {
+export const updateCityStatus = async (id, status) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -906,10 +817,9 @@ export const updateCommunityStatus = async (id, status) => {
     );
     
     if (existing.length === 0) {
-      throw new Error('Community not found');
+      throw new Error('City not found');
     }
 
-    // Convert status for database
     const statusValue = await convertStatusForDB(connection, status);
 
     await connection.query(
@@ -924,7 +834,7 @@ export const updateCommunityStatus = async (id, status) => {
 
     return normalizeResponse(rows[0]);
   } catch (error) {
-    console.error('Error updating community status:', error);
+    console.error('Error updating city status:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -941,7 +851,6 @@ export const bulkUpdateStatus = async (ids, status) => {
       throw new Error('Invalid status');
     }
 
-    // Convert status for database
     const statusValue = await convertStatusForDB(connection, status);
 
     const placeholders = ids.map(() => '?').join(',');
@@ -967,12 +876,11 @@ export const bulkUpdateStatus = async (ids, status) => {
   }
 };
 
-export const getCommunitiesByStatus = async (status) => {
+export const getCitiesByStatus = async (status) => {
   let connection;
   try {
     connection = await pool.getConnection();
     
-    // Convert status for query
     const statusIsInt = await isStatusInt(connection);
     let statusValue = status;
     if (statusIsInt) {
@@ -984,7 +892,7 @@ export const getCommunitiesByStatus = async (status) => {
     
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error fetching communities by status:', error);
+    console.error('Error fetching cities by status:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -992,7 +900,7 @@ export const getCommunitiesByStatus = async (status) => {
 };
 
 // ==================== SEARCH & FILTER ====================
-export const searchCommunities = async (searchTerm, limit = 10) => {
+export const searchCities = async (searchTerm, limit = 10) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1009,14 +917,14 @@ export const searchCommunities = async (searchTerm, limit = 10) => {
     
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error searching communities:', error);
+    console.error('Error searching cities:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const filterCommunities = async (filters) => {
+export const filterCities = async (filters) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1026,14 +934,14 @@ export const filterCommunities = async (filters) => {
 
     const statusIsInt = await isStatusInt(connection);
 
-    if (filters.city_id) {
-      whereConditions.push(`city_id = ?`);
-      queryParams.push(parseInt(filters.city_id));
-    }
-
     if (filters.country_id) {
       whereConditions.push(`country_id = ?`);
       queryParams.push(parseInt(filters.country_id));
+    }
+
+    if (filters.state_id) {
+      whereConditions.push(`state_id = ?`);
+      queryParams.push(parseInt(filters.state_id));
     }
 
     if (filters.status) {
@@ -1045,16 +953,6 @@ export const filterCommunities = async (filters) => {
       }
     }
 
-    if (filters.featured !== undefined) {
-      whereConditions.push(`featured = ?`);
-      queryParams.push(filters.featured ? 1 : 0);
-    }
-
-    if (filters.top_community !== undefined) {
-      whereConditions.push(`top_community = ?`);
-      queryParams.push(filters.top_community ? 1 : 0);
-    }
-
     const whereClause = whereConditions.length > 0 
       ? 'WHERE ' + whereConditions.join(' AND ')
       : '';
@@ -1064,7 +962,7 @@ export const filterCommunities = async (filters) => {
 
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error filtering communities:', error);
+    console.error('Error filtering cities:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -1072,7 +970,7 @@ export const filterCommunities = async (filters) => {
 };
 
 // ==================== STATS ====================
-export const getCommunityStats = async () => {
+export const getCityStats = async () => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1086,8 +984,7 @@ export const getCommunityStats = async () => {
           COUNT(*) as total,
           SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as active,
           SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) as inactive,
-          SUM(CASE WHEN featured = 1 THEN 1 ELSE 0 END) as featured,
-          SUM(CASE WHEN top_community = 1 THEN 1 ELSE 0 END) as top_communities
+          COUNT(DISTINCT country_id) as unique_countries
         FROM ${TABLE_NAME}
       `;
     } else {
@@ -1096,8 +993,7 @@ export const getCommunityStats = async () => {
           COUNT(*) as total,
           SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
           SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive,
-          SUM(CASE WHEN featured = 1 THEN 1 ELSE 0 END) as featured,
-          SUM(CASE WHEN top_community = 1 THEN 1 ELSE 0 END) as top_communities
+          COUNT(DISTINCT country_id) as unique_countries
         FROM ${TABLE_NAME}
       `;
     }
@@ -1107,11 +1003,10 @@ export const getCommunityStats = async () => {
       total: parseInt(rows[0].total) || 0,
       active: parseInt(rows[0].active) || 0,
       inactive: parseInt(rows[0].inactive) || 0,
-      featured: parseInt(rows[0].featured) || 0,
-      top_communities: parseInt(rows[0].top_communities) || 0
+      unique_countries: parseInt(rows[0].unique_countries) || 0
     };
   } catch (error) {
-    console.error('Error fetching community stats:', error);
+    console.error('Error fetching city stats:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -1119,7 +1014,7 @@ export const getCommunityStats = async () => {
 };
 
 // ==================== UTILITIES ====================
-export const getRecentCommunities = async (limit = 5) => {
+export const getRecentCities = async (limit = 5) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1137,14 +1032,14 @@ export const getRecentCommunities = async (limit = 5) => {
     const [rows] = await connection.query(query, [activeStatus, parseInt(limit)]);
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error fetching recent communities:', error);
+    console.error('Error fetching recent cities:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const getCommunitiesForDropdown = async () => {
+export const getCitiesForDropdown = async (countryId = null) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1152,23 +1047,30 @@ export const getCommunitiesForDropdown = async () => {
     const statusIsInt = await isStatusInt(connection);
     const activeStatus = statusIsInt ? 1 : 'active';
     
-    const query = `
-      SELECT id, name, slug, city_id, country_id FROM ${TABLE_NAME} 
+    let query = `
+      SELECT id, name, slug, country_id FROM ${TABLE_NAME} 
       WHERE status = ?
-      ORDER BY name ASC
     `;
+    const params = [activeStatus];
+
+    if (countryId) {
+      query += ' AND country_id = ?';
+      params.push(parseInt(countryId));
+    }
+
+    query += ' ORDER BY name ASC';
     
-    const [rows] = await connection.query(query, [activeStatus]);
+    const [rows] = await connection.query(query, params);
     return rows;
   } catch (error) {
-    console.error('Error fetching communities for dropdown:', error);
+    console.error('Error fetching cities for dropdown:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const getActiveCommunities = async () => {
+export const getActiveCities = async () => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1181,14 +1083,14 @@ export const getActiveCommunities = async () => {
     
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error fetching active communities:', error);
+    console.error('Error fetching active cities:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const getCommunitiesWithMedia = async () => {
+export const getCitiesWithMedia = async () => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1202,14 +1104,14 @@ export const getCommunitiesWithMedia = async () => {
     const [rows] = await connection.query(query);
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error fetching communities with media:', error);
+    console.error('Error fetching cities with media:', error);
     throw error;
   } finally {
     if (connection) connection.release();
   }
 };
 
-export const getCommunityByCoordinates = async (latitude, longitude, radius = 5) => {
+export const getCityByCoordinates = async (latitude, longitude, radius = 5) => {
   let connection;
   try {
     connection = await pool.getConnection();
@@ -1229,7 +1131,7 @@ export const getCommunityByCoordinates = async (latitude, longitude, radius = 5)
     const [rows] = await connection.query(query, [latitude, longitude, latitude, radius]);
     return rows.map(normalizeResponse);
   } catch (error) {
-    console.error('Error fetching communities by coordinates:', error);
+    console.error('Error fetching cities by coordinates:', error);
     throw error;
   } finally {
     if (connection) connection.release();
@@ -1238,32 +1140,32 @@ export const getCommunityByCoordinates = async (latitude, longitude, radius = 5)
 
 // ==================== EXPORT ====================
 export default {
-  createCommunityTable,
+  createCitiesTable,
   generateSlug,
   slugExists,
   generateUniqueSlug,
-  checkDuplicateCommunity,
-  createCommunity,
-  getAllCommunities,
-  getAllCommunitiesNoPagination,
-  getCommunityById,
-  getCommunityBySlug,
-  getCommunitiesByCity,
-  getCommunitiesByCountry,
-  updateCommunity,
-  updateCommunityMedia,
-  deleteCommunityMedia,
-  deleteCommunity,
-  bulkDeleteCommunities,
-  updateCommunityStatus,
+  checkDuplicateCity,
+  createCity,
+  getAllCities,
+  getAllCitiesNoPagination,
+  getCityById,
+  getCityBySlug,
+  getCitiesByCountry,
+  getCitiesByState,
+  updateCity,
+  updateCityMedia,
+  deleteCityMedia,
+  deleteCity,
+  bulkDeleteCities,
+  updateCityStatus,
   bulkUpdateStatus,
-  getCommunitiesByStatus,
-  searchCommunities,
-  filterCommunities,
-  getCommunityStats,
-  getRecentCommunities,
-  getCommunitiesForDropdown,
-  getActiveCommunities,
-  getCommunitiesWithMedia,
-  getCommunityByCoordinates
+  getCitiesByStatus,
+  searchCities,
+  filterCities,
+  getCityStats,
+  getRecentCities,
+  getCitiesForDropdown,
+  getActiveCities,
+  getCitiesWithMedia,
+  getCityByCoordinates
 };

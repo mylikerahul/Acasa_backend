@@ -8,7 +8,7 @@ import catchAsyncErrors from "../../middleware/catchAsyncErrors.js";
 import ErrorHandler from "../../utils/errorHandler.js";
 import { sendToken, logout as jwtLogout, verifyJWT } from "../../utils/jwtToken.js";
 
-/* =========================================================
+/* v=========================================================
    CONFIGURATION
 ========================================================= */
 

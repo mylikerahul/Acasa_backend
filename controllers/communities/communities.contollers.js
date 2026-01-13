@@ -1,5 +1,3 @@
-// controllers/admin/Communities/Communities.controllers.js
-
 import path from 'path';
 import fs from 'fs/promises';
 import * as CommunitiesModel from '../../models/communities/communities.model.js';
@@ -30,6 +28,11 @@ const getFilePath = (file) => {
   return `${UPLOAD_FOLDER}/${file.filename}`;
 };
 
+// Helper to convert boolean values
+const toBoolean = (value) => {
+  return value === true || value === 'true' || value === 1 || value === '1';
+};
+
 // ==================== TABLE INITIALIZATION ====================
 export const initializeCommunityTable = catchAsyncErrors(async (req, res, next) => {
   await CommunitiesModel.createCommunityTable();
@@ -42,6 +45,9 @@ export const initializeCommunityTable = catchAsyncErrors(async (req, res, next) 
 
 // ==================== CREATE ====================
 export const createCommunity = catchAsyncErrors(async (req, res, next) => {
+  console.log('📥 Create Community Request Body:', req.body);
+  console.log('📥 Create Community File:', req.file);
+
   const {
     name,
     country_id,
@@ -60,6 +66,7 @@ export const createCommunity = catchAsyncErrors(async (req, res, next) => {
     seo_slug,
     seo_title,
     seo_keyword,
+    seo_keywork, // Handle both spellings
     seo_description,
     featured,
     status
@@ -75,14 +82,14 @@ export const createCommunity = catchAsyncErrors(async (req, res, next) => {
 
   const communityData = {
     name: name.trim(),
-    country_id: country_id || null,
-    state_id: state_id || null,
-    city_id: city_id || null,
+    country_id: country_id ? parseInt(country_id) : null,
+    state_id: state_id ? parseInt(state_id) : null,
+    city_id: city_id ? parseInt(city_id) : null,
     latitude: latitude || null,
     longitude: longitude || null,
     img,
     description: description || null,
-    top_community: top_community === 'true' || top_community === true,
+    top_community: toBoolean(top_community),
     top_projects: top_projects || null,
     featured_project: featured_project || null,
     related_blog: related_blog || null,
@@ -91,11 +98,13 @@ export const createCommunity = catchAsyncErrors(async (req, res, next) => {
     sales_director: sales_director || null,
     seo_slug: seo_slug || null,
     seo_title: seo_title || null,
-    seo_keyword: seo_keyword || null,
+    seo_keyword: seo_keyword || seo_keywork || null, // Handle both spellings
     seo_description: seo_description || null,
-    featured: featured === 'true' || featured === true,
+    featured: toBoolean(featured),
     status: VALID_STATUSES.includes(status) ? status : 'active'
   };
+
+  console.log('📤 Community Data to Save:', communityData);
 
   const community = await CommunitiesModel.createCommunity(communityData);
 
@@ -126,7 +135,8 @@ export const getAllCommunities = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({
     success: true,
     message: 'Communities fetched successfully',
-    ...result
+    data: result.data,
+    pagination: result.pagination
   });
 });
 
@@ -225,6 +235,9 @@ export const getCommunitiesByCountry = catchAsyncErrors(async (req, res, next) =
 export const updateCommunity = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
 
+  console.log('📥 Update Community Request Body:', req.body);
+  console.log('📥 Update Community File:', req.file);
+
   if (!id || isNaN(id)) {
     return next(new ErrorHandler('Valid community ID is required', 400));
   }
@@ -235,15 +248,39 @@ export const updateCommunity = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('Community not found', 404));
   }
 
-  const updateData = { ...req.body };
+  const updateData = {};
 
-  // Handle boolean conversions
-  if (updateData.top_community !== undefined) {
-    updateData.top_community = updateData.top_community === 'true' || updateData.top_community === true;
-  }
-  if (updateData.featured !== undefined) {
-    updateData.featured = updateData.featured === 'true' || updateData.featured === true;
-  }
+  // Copy all fields from body
+  const allowedFields = [
+    'name', 'country_id', 'state_id', 'city_id', 'latitude', 'longitude',
+    'description', 'top_community', 'top_projects', 'featured_project',
+    'related_blog', 'properties', 'similar_location', 'sales_director',
+    'seo_slug', 'seo_title', 'seo_keyword', 'seo_keywork', 'seo_description',
+    'featured', 'status'
+  ];
+
+  allowedFields.forEach(field => {
+    if (req.body[field] !== undefined) {
+      let value = req.body[field];
+
+      // Handle boolean conversions
+      if (field === 'top_community' || field === 'featured') {
+        value = toBoolean(value);
+      }
+
+      // Handle integer conversions
+      if (['country_id', 'state_id', 'city_id'].includes(field) && value) {
+        value = parseInt(value);
+      }
+
+      // Handle seo_keyword field (map seo_keywork to seo_keyword)
+      if (field === 'seo_keywork') {
+        updateData['seo_keyword'] = value;
+      } else {
+        updateData[field] = value;
+      }
+    }
+  });
 
   // Validate status if provided
   if (updateData.status && !VALID_STATUSES.includes(updateData.status)) {
@@ -258,6 +295,8 @@ export const updateCommunity = catchAsyncErrors(async (req, res, next) => {
     }
     updateData.img = getFilePath(req.file);
   }
+
+  console.log('📤 Update Data:', updateData);
 
   const community = await CommunitiesModel.updateCommunity(parseInt(id), updateData);
 
@@ -386,12 +425,12 @@ export const bulkDeleteCommunities = catchAsyncErrors(async (req, res, next) => 
     }
   }
 
-  const deletedCommunities = await CommunitiesModel.bulkDeleteCommunities(ids.map(id => parseInt(id)));
+  const result = await CommunitiesModel.bulkDeleteCommunities(ids.map(id => parseInt(id)));
 
   res.status(200).json({
     success: true,
-    message: `${deletedCommunities.length} communities deleted successfully`,
-    data: deletedCommunities
+    message: `${result.deletedCount} communities deleted successfully`,
+    data: result
   });
 });
 
@@ -574,45 +613,6 @@ export const getCommunitiesWithMedia = catchAsyncErrors(async (req, res, next) =
   });
 });
 
-export const getAllCities = catchAsyncErrors(async (req, res, next) => {
-  const cities = await CommunitiesModel.getAllCities();
-
-  res.status(200).json({
-    success: true,
-    message: 'Cities fetched successfully',
-    count: cities.length,
-    data: cities
-  });
-});
-
-export const getAllCountries = catchAsyncErrors(async (req, res, next) => {
-  const countries = await CommunitiesModel.getAllCountries();
-
-  res.status(200).json({
-    success: true,
-    message: 'Countries fetched successfully',
-    count: countries.length,
-    data: countries
-  });
-});
-
-export const getCitiesByCountry = catchAsyncErrors(async (req, res, next) => {
-  const { countryId } = req.params;
-
-  if (!countryId || isNaN(countryId)) {
-    return next(new ErrorHandler('Valid country ID is required', 400));
-  }
-
-  const cities = await CommunitiesModel.getCitiesByCountry(parseInt(countryId));
-
-  res.status(200).json({
-    success: true,
-    message: 'Cities fetched successfully',
-    count: cities.length,
-    data: cities
-  });
-});
-
 // ==================== EXPORT DEFAULT ====================
 export default {
   initializeCommunityTable,
@@ -638,8 +638,5 @@ export default {
   getActiveCommunities,
   getRecentCommunities,
   getCommunityByCoordinates,
-  getCommunitiesWithMedia,
-  getAllCities,
-  getAllCountries,
-  getCitiesByCountry
+  getCommunitiesWithMedia
 };

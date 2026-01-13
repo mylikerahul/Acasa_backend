@@ -14,7 +14,7 @@
 // --- Level 1: Core & Independent Tables (No FK Dependencies) ---
 import * as UserModel from '../models/user/user.model.js';
 import * as AdminMenusModel from '../models/admin/admin_menus.model.js';
-import * as CitiesModel from '../models/location/cities.model.js';
+import * as CitiesModel from '../models/cities/cities.model.js';
 import * as BuildingStyleModel from '../models/properties/building_style.model.js';
 import * as CommercialAmenitiesModel from '../models/properties/commercial_amenities.model.js';
 import * as ColumnActionModel from '../models/settings/column_action.model.js';
@@ -59,6 +59,8 @@ import * as TaskModel from '../models/task/task.model.js';
 import * as ActivityModel from '../models/activity/activity.model.js';
 import * as AnalyticsModel from '../models/analytics/analytics.models.js';
 import * as LifestyleModel from '../models/lifestyle/lifestyle.model.js';
+import * as SubCommunitiesModel from '../models/sub_community/sub_community.model.js';
+
 
 
 
@@ -114,6 +116,12 @@ const SCHEMA_CONFIG = [
         init: AgentsModel.createAgentTable,
         description: 'Agent data'
       }, 
+        {
+        name: 'subcommunities',
+        init: SubCommunitiesModel.createSubCommunityTable,
+        description: 'Agent data'
+      }, 
+     
        {
         name: 'analytics',
         init: AnalyticsModel.createAnalyticsTable ,

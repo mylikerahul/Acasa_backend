@@ -1,5 +1,3 @@
-// routes/admin/Communities/Communities.routes.js
-
 import express from 'express';
 import * as CommunitiesController from '../../controllers/communities/communities.contollers.js';
 import { isAdmin, isAuthenticated } from '../../guards/guards.js';
@@ -110,30 +108,6 @@ router.get(
   CommunitiesController.getCommunitiesWithMedia
 );
 
-// Get all cities (admin)
-router.get(
-  '/cities',
-  isAuthenticated,
-  isAdmin,
-  CommunitiesController.getAllCities
-);
-
-// Get all countries (admin)
-router.get(
-  '/countries',
-  isAuthenticated,
-  isAdmin,
-  CommunitiesController.getAllCountries
-);
-
-// Get cities by country (admin)
-router.get(
-  '/cities/:countryId',
-  isAuthenticated,
-  isAdmin,
-  CommunitiesController.getCitiesByCountry
-);
-
 // Get communities by status (admin)
 router.get(
   '/status/:status',
@@ -210,7 +184,7 @@ router.delete(
 );
 
 // Bulk delete communities (admin)
-router.delete(
+router.post(
   '/bulk/delete',
   isAuthenticated,
   isAdmin,

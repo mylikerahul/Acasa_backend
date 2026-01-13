@@ -1,57 +1,51 @@
-// controllers/admin/Deals/Deals.controller.js
-
 import * as DealsModel from '../../models/deals/deals.model.js';
 import catchAsyncErrors from '../../middleware/catchAsyncErrors.js';
 import ErrorHandler from '../../utils/errorHandler.js';
 
-// ==================== CREATE DEALS TABLE ====================
+/* =========================================================
+   CREATE DEAL
+========================================================= */
 
-export const createDealsTable = catchAsyncErrors(async (req, res, next) => {
-  await DealsModel.createDealsTable();
-  
-  res.status(200).json({
+export const createDeal = catchAsyncErrors(async (req, res, next) => {
+  const dealData = req.body;
+
+  // Check if slug already exists (if provided)
+  if (dealData.slug) {
+    const existingDeal = await DealsModel.getDealBySlug(dealData.slug);
+    if (existingDeal) {
+      return next(new ErrorHandler('Deal with this slug already exists', 400));
+    }
+  }
+
+  const result = await DealsModel.createDeal(dealData);
+
+  res.status(201).json({
     success: true,
-    message: 'Deals table created successfully'
-  });
-});
-
-// ==================== GET ALL DEALS ====================
-
-// ==================== GET ALL DEALS ====================
-
-export const getAllDeals = catchAsyncErrors(async (req, res, next) => {
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
-  
-  // ✅ Build options object (Model expects options object, not separate params)
-  const options = {
-    page,
-    limit,
-    status: req.query.closing_status || req.query.status,
-    city: req.query.listing_city || req.query.city,
-    developer: req.query.developer,
-    search: req.query.search,
-    sortBy: req.query.sortBy || 'id',
-    sortOrder: req.query.sortOrder || 'desc'
-  };
-
-  const result = await DealsModel.getAllDeals(options);
-
-  res.status(200).json({
-    success: true,
-    message: 'Deals fetched successfully',
-    data: result.data,  // ✅ Model returns "data", not "deals"
-    pagination: {
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-      totalPages: result.totalPages,
-      hasMore: result.hasMore
+    message: 'Deal created successfully',
+    data: {
+      id: result.insertId,
+      ...dealData
     }
   });
 });
 
-// ==================== GET DEAL BY ID ====================
+/* =========================================================
+   GET ALL DEALS
+========================================================= */
+
+export const getAllDeals = catchAsyncErrors(async (req, res, next) => {
+  const deals = await DealsModel.getAllDeals();
+
+  res.status(200).json({
+    success: true,
+    count: deals.length,
+    data: deals
+  });
+});
+
+/* =========================================================
+   GET DEAL BY ID
+========================================================= */
 
 export const getDealById = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
@@ -64,17 +58,18 @@ export const getDealById = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     success: true,
-    message: 'Deal fetched successfully',
     data: deal
   });
 });
 
-// ==================== GET DEAL BY CLOSING ID ====================
+/* =========================================================
+   GET DEAL BY SLUG
+========================================================= */
 
-export const getDealByClosingId = catchAsyncErrors(async (req, res, next) => {
-  const { closingId } = req.params;
+export const getDealBySlug = catchAsyncErrors(async (req, res, next) => {
+  const { slug } = req.params;
 
-  const deal = await DealsModel.getDealByClosingId(closingId);
+  const deal = await DealsModel.getDealBySlug(slug);
 
   if (!deal) {
     return next(new ErrorHandler('Deal not found', 404));
@@ -82,38 +77,82 @@ export const getDealByClosingId = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     success: true,
-    message: 'Deal fetched successfully',
     data: deal
   });
 });
 
-// ==================== CREATE DEAL ====================
+/* =========================================================
+   GET DEALS BY STATUS
+========================================================= */
 
-export const createDeal = catchAsyncErrors(async (req, res, next) => {
-  const dealData = req.body;
+export const getDealsByStatus = catchAsyncErrors(async (req, res, next) => {
+  const { status } = req.params;
 
-  // Generate slug if not provided
-  if (!dealData.slug && dealData.closing_name) {
-    dealData.slug = dealData.closing_name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '') + '-' + Date.now();
+  const deals = await DealsModel.getDealsByStatus(status);
+
+  res.status(200).json({
+    success: true,
+    count: deals.length,
+    data: deals
+  });
+});
+
+/* =========================================================
+   GET DEALS BY BROKER
+========================================================= */
+
+export const getDealsByBroker = catchAsyncErrors(async (req, res, next) => {
+  const { brokerName } = req.params;
+
+  const deals = await DealsModel.getDealsByBroker(brokerName);
+
+  res.status(200).json({
+    success: true,
+    count: deals.length,
+    data: deals
+  });
+});
+
+/* =========================================================
+   GET DEALS BY DATE RANGE
+========================================================= */
+
+export const getDealsByDateRange = catchAsyncErrors(async (req, res, next) => {
+  const { startDate, endDate } = req.query;
+
+  if (!startDate || !endDate) {
+    return next(new ErrorHandler('Please provide both startDate and endDate', 400));
   }
 
-  const deal = await DealsModel.createDeal(dealData);
+  const deals = await DealsModel.getDealsByDateRange(startDate, endDate);
 
-  res.status(201).json({
+  res.status(200).json({
     success: true,
-    message: 'Deal created successfully',
-    data: deal
+    count: deals.length,
+    data: deals
   });
 });
 
-// ==================== UPDATE DEAL ====================
+/* =========================================================
+   GET DEALS STATISTICS
+========================================================= */
+
+export const getDealsStatistics = catchAsyncErrors(async (req, res, next) => {
+  const statistics = await DealsModel.getDealsStatistics();
+
+  res.status(200).json({
+    success: true,
+    data: statistics
+  });
+});
+
+/* =========================================================
+   UPDATE DEAL
+========================================================= */
 
 export const updateDeal = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
-  const dealData = req.body;
+  const updateData = req.body;
 
   // Check if deal exists
   const existingDeal = await DealsModel.getDealById(id);
@@ -121,12 +160,21 @@ export const updateDeal = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('Deal not found', 404));
   }
 
-  const updated = await DealsModel.updateDeal(id, dealData);
+  // Check if slug is being updated and if it already exists
+  if (updateData.slug && updateData.slug !== existingDeal.slug) {
+    const dealWithSlug = await DealsModel.getDealBySlug(updateData.slug);
+    if (dealWithSlug) {
+      return next(new ErrorHandler('Deal with this slug already exists', 400));
+    }
+  }
 
-  if (!updated) {
+  const result = await DealsModel.updateDeal(id, updateData);
+
+  if (result.affectedRows === 0) {
     return next(new ErrorHandler('Failed to update deal', 400));
   }
 
+  // Fetch updated deal
   const updatedDeal = await DealsModel.getDealById(id);
 
   res.status(200).json({
@@ -136,34 +184,9 @@ export const updateDeal = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-// ==================== UPDATE DEAL SECTION ====================
-
-export const updateDealSection = catchAsyncErrors(async (req, res, next) => {
-  const { id, section } = req.params;
-  const sectionData = req.body;
-
-  // Check if deal exists
-  const existingDeal = await DealsModel.getDealById(id);
-  if (!existingDeal) {
-    return next(new ErrorHandler('Deal not found', 404));
-  }
-
-  const updated = await DealsModel.updateDealSection(id, section, sectionData);
-
-  if (!updated) {
-    return next(new ErrorHandler('Failed to update deal section', 400));
-  }
-
-  const updatedDeal = await DealsModel.getDealById(id);
-
-  res.status(200).json({
-    success: true,
-    message: `Deal ${section} updated successfully`,
-    data: updatedDeal
-  });
-});
-
-// ==================== DELETE DEAL ====================
+/* =========================================================
+   DELETE DEAL
+========================================================= */
 
 export const deleteDeal = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;
@@ -174,9 +197,9 @@ export const deleteDeal = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('Deal not found', 404));
   }
 
-  const deleted = await DealsModel.deleteDeal(id);
+  const result = await DealsModel.deleteDeal(id);
 
-  if (!deleted) {
+  if (result.affectedRows === 0) {
     return next(new ErrorHandler('Failed to delete deal', 400));
   }
 
@@ -186,149 +209,108 @@ export const deleteDeal = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-// ==================== BULK DELETE DEALS ====================
+/* =========================================================
+   BULK CREATE DEALS
+========================================================= */
 
-export const bulkDeleteDeals = catchAsyncErrors(async (req, res, next) => {
-  const { ids } = req.body;
+export const bulkCreateDeals = catchAsyncErrors(async (req, res, next) => {
+  const { deals } = req.body;
 
-  if (!ids || !Array.isArray(ids) || ids.length === 0) {
-    return next(new ErrorHandler('Please provide deal IDs to delete', 400));
+  if (!Array.isArray(deals) || deals.length === 0) {
+    return next(new ErrorHandler('Please provide an array of deals', 400));
   }
 
-  const deletedCount = await DealsModel.bulkDeleteDeals(ids);
+  const results = [];
+  const errors = [];
 
-  res.status(200).json({
+  for (let i = 0; i < deals.length; i++) {
+    try {
+      const result = await DealsModel.createDeal(deals[i]);
+      results.push({
+        index: i,
+        id: result.insertId,
+        success: true
+      });
+    } catch (error) {
+      errors.push({
+        index: i,
+        error: error.message
+      });
+    }
+  }
+
+  res.status(201).json({
     success: true,
-    message: `${deletedCount} deal(s) deleted successfully`,
-    deletedCount
+    message: `${results.length} deals created successfully`,
+    created: results.length,
+    failed: errors.length,
+    results,
+    errors
   });
 });
 
-// ==================== UPDATE DEAL STATUS ====================
-
-export const updateDealStatus = catchAsyncErrors(async (req, res, next) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  if (!status) {
-    return next(new ErrorHandler('Please provide status', 400));
-  }
-
-  // Check if deal exists
-  const existingDeal = await DealsModel.getDealById(id);
-  if (!existingDeal) {
-    return next(new ErrorHandler('Deal not found', 404));
-  }
-
-  const updated = await DealsModel.updateDealStatus(id, status);
-
-  if (!updated) {
-    return next(new ErrorHandler('Failed to update deal status', 400));
-  }
-
-  res.status(200).json({
-    success: true,
-    message: 'Deal status updated successfully'
-  });
-});
-
-// ==================== GET DEAL STATS ====================
-
-export const getDealStats = catchAsyncErrors(async (req, res, next) => {
-  const stats = await DealsModel.getDealStats();
-
-  res.status(200).json({
-    success: true,
-    message: 'Deal stats fetched successfully',
-    data: stats
-  });
-});
-
-// ==================== SEARCH DEALS ====================
+/* =========================================================
+   SEARCH DEALS
+========================================================= */
 
 export const searchDeals = catchAsyncErrors(async (req, res, next) => {
-  const { q } = req.query;
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
+  const { 
+    keyword, 
+    status, 
+    broker, 
+    minPrice, 
+    maxPrice,
+    startDate,
+    endDate 
+  } = req.query;
 
-  if (!q) {
-    return next(new ErrorHandler('Please provide search term', 400));
+  let deals = await DealsModel.getAllDeals();
+
+  // Filter by keyword (searches in multiple fields)
+  if (keyword) {
+    const searchTerm = keyword.toLowerCase();
+    deals = deals.filter(deal => 
+      (deal.closing_name && deal.closing_name.toLowerCase().includes(searchTerm)) ||
+      (deal.Listing && deal.Listing.toLowerCase().includes(searchTerm)) ||
+      (deal.Buyers && deal.Buyers.toLowerCase().includes(searchTerm)) ||
+      (deal.Sellers && deal.Sellers.toLowerCase().includes(searchTerm))
+    );
   }
 
-  const deals = await DealsModel.searchDeals(q, page, limit);
+  // Filter by status
+  if (status) {
+    deals = deals.filter(deal => deal.Closing_Status === status);
+  }
+
+  // Filter by broker
+  if (broker) {
+    deals = deals.filter(deal => 
+      deal.Closing_Broker === broker ||
+      deal.Second_Broker === broker ||
+      deal.Third_Broker === broker ||
+      deal.Fourth_broker === broker
+    );
+  }
+
+  // Filter by price range
+  if (minPrice) {
+    deals = deals.filter(deal => deal.Sales_Price >= parseFloat(minPrice));
+  }
+  if (maxPrice) {
+    deals = deals.filter(deal => deal.Sales_Price <= parseFloat(maxPrice));
+  }
+
+  // Filter by date range
+  if (startDate && endDate) {
+    deals = deals.filter(deal => {
+      const dealDate = new Date(deal.closing_date);
+      return dealDate >= new Date(startDate) && dealDate <= new Date(endDate);
+    });
+  }
 
   res.status(200).json({
     success: true,
-    message: 'Search results fetched successfully',
-    data: deals,
-    count: deals.length
-  });
-});
-
-// ==================== GET RECENT DEALS ====================
-
-export const getRecentDeals = catchAsyncErrors(async (req, res, next) => {
-  const limit = parseInt(req.query.limit) || 5;
-
-  const deals = await DealsModel.getRecentDeals(limit);
-
-  res.status(200).json({
-    success: true,
-    message: 'Recent deals fetched successfully',
+    count: deals.length,
     data: deals
   });
 });
-
-// ==================== GET DEALS BY CLOSING STATUS ====================
-
-export const getDealsByClosingStatus = catchAsyncErrors(async (req, res, next) => {
-  const { status } = req.params;
-
-  const deals = await DealsModel.getDealsByClosingStatus(status);
-
-  res.status(200).json({
-    success: true,
-    message: 'Deals fetched successfully',
-    data: deals,
-    count: deals.length
-  });
-});
-
-// ==================== GET DEALS BY MONTH ====================
-
-export const getDealsByMonth = catchAsyncErrors(async (req, res, next) => {
-  const { year, month } = req.params;
-
-  if (!year || !month) {
-    return next(new ErrorHandler('Please provide year and month', 400));
-  }
-
-  const deals = await DealsModel.getDealsByMonth(parseInt(year), parseInt(month));
-
-  res.status(200).json({
-    success: true,
-    message: 'Deals fetched successfully',
-    data: deals,
-    count: deals.length
-  });
-});
-
-// ==================== EXPORT DEFAULT ====================
-
-export default {
-  createDealsTable,
-  getAllDeals,
-  getDealById,
-  getDealByClosingId,
-  createDeal,
-  updateDeal,
-  updateDealSection,
-  deleteDeal,
-  bulkDeleteDeals,
-  updateDealStatus,
-  getDealStats,
-  searchDeals,
-  getRecentDeals,
-  getDealsByClosingStatus,
-  getDealsByMonth
-};

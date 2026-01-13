@@ -1,36 +1,79 @@
-// routes/admin/Deals/Deals.routes.js
-
 import express from 'express';
-import * as DealsController from '../../controllers/deals/deals.controller.js';
-import { isAdmin, isAuthenticated } from '../../guards/guards.js';
+import * as dealsController from '../../controllers/deals/deals.controller.js';
+import { isAuthenticated, isAdmin } from '../../guards/guards.js';
+import { createUploader } from '../../middleware/uploads.js';
 
 const router = express.Router();
 
-// ==================== TABLE CREATION ====================
-router.post('/create-table', isAuthenticated, isAdmin, DealsController.createDealsTable);
+// ==================== UPLOAD CONFIG ====================
+// Folder name 'deals'
+const imageUpload = createUploader('deals', {
+  maxSize: 5 * 1024 * 1024, // 5MB
+  allowedTypes: ['image/jpeg', 'image/png', 'image/webp']
+});
 
-// ==================== STATS & ANALYTICS ====================
-router.get('/stats', isAuthenticated, isAdmin, DealsController.getDealStats);
-router.get('/recent', isAuthenticated, isAdmin, DealsController.getRecentDeals);
-router.get('/search', isAuthenticated, isAdmin, DealsController.searchDeals);
+// ==================== PUBLIC ROUTES ====================
 
-// ==================== FILTER ROUTES ====================
-router.get('/status/:status', isAuthenticated, isAdmin, DealsController.getDealsByClosingStatus);
-router.get('/month/:year/:month', isAuthenticated, isAdmin, DealsController.getDealsByMonth);
-router.get('/closing/:closingId', isAuthenticated, isAdmin, DealsController.getDealByClosingId);
+// Get all deals
+router.get('/', dealsController.getAllDeals);
 
-// ==================== BULK OPERATIONS ====================
-router.post('/bulk-delete', isAuthenticated, isAdmin, DealsController.bulkDeleteDeals);
+// Get deal by ID
+router.get('/id/:id', dealsController.getDealById);
 
-// ==================== CRUD OPERATIONS ====================
-router.get('/', isAuthenticated, isAdmin, DealsController.getAllDeals);
-router.get('/:id', isAuthenticated, isAdmin, DealsController.getDealById);
-router.post('/', isAuthenticated, isAdmin, DealsController.createDeal);
-router.put('/:id', isAuthenticated, isAdmin, DealsController.updateDeal);
-router.delete('/:id', isAuthenticated, isAdmin, DealsController.deleteDeal);
+// Get deal by slug
+router.get('/slug/:slug', dealsController.getDealBySlug);
 
-// ==================== SECTION & STATUS UPDATE ====================
-router.patch('/:id/status', isAuthenticated, isAdmin, DealsController.updateDealStatus);
-router.patch('/:id/section/:section', isAuthenticated, isAdmin, DealsController.updateDealSection);
+// Get deals by status
+router.get('/status/:status', dealsController.getDealsByStatus);
+
+// Get deals by broker
+router.get('/broker/:brokerName', dealsController.getDealsByBroker);
+
+// Get deals by date range (query params: ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD)
+router.get('/date-range', dealsController.getDealsByDateRange);
+
+// Get deals statistics
+router.get('/statistics', dealsController.getDealsStatistics);
+
+// Search deals (query params: ?keyword=&status=&broker=&minPrice=&maxPrice=&startDate=&endDate=)
+router.get('/search', dealsController.searchDeals);
+
+// ==================== AUTHENTICATED ROUTES ====================
+
+// Create new deal (with optional image upload)
+router.post(
+  '/',
+  isAuthenticated,
+  isAdmin,
+  imageUpload.single('image'),
+  dealsController.createDeal
+);
+
+// Bulk create deals
+router.post(
+  '/bulk-create',
+  isAuthenticated,
+  isAdmin,
+  dealsController.bulkCreateDeals
+);
+
+// Update deal (with optional image upload)
+router.put(
+  '/update/:id',
+  isAuthenticated,
+  isAdmin,
+  imageUpload.single('image'),
+  dealsController.updateDeal
+);
+
+// Delete deal
+router.delete(
+  '/delete/:id',
+  isAuthenticated,
+  isAdmin,
+  dealsController.deleteDeal
+);
+
+// ==================== EXPORT ====================
 
 export default router;

@@ -1,9 +1,4 @@
-// backend/models/developer/developer.model.js
 import pool from '../../config/db.js';
-
-/* =========================================================
-   TABLE CREATION
-========================================================= */
 
 export const createDeveloperTable = async () => {
   const query = `
@@ -38,23 +33,12 @@ export const createDeveloperTable = async () => {
   
   try {
     await pool.query(query);
-    console.log('Developer table checked/created successfully.');
   } catch (error) {
     console.error('Error creating developer table:', error);
     throw error;
   }
 };
 
-/* =========================================================
-   PUBLIC DEVELOPER OPERATIONS
-========================================================= */
-
-/**
- * Fetches developers based on filters and pagination
- * @param {object} filters - { status, search, orderBy, order }
- * @param {object} pagination - { page, limit }
- * @returns {object} - { developers, total, page, limit, totalPages }
- */
 export const getAllDevelopers = async (filters = {}, pagination = {}) => {
   const page = parseInt(pagination.page) || 1;
   const limit = parseInt(pagination.limit) || 20;
@@ -63,7 +47,6 @@ export const getAllDevelopers = async (filters = {}, pagination = {}) => {
   let whereConditions = [];
   const params = [];
 
-  // Status filter
   if (filters.status !== undefined && filters.status !== null) {
     whereConditions.push('status = ?');
     params.push(filters.status);
@@ -71,7 +54,6 @@ export const getAllDevelopers = async (filters = {}, pagination = {}) => {
     whereConditions.push('status = 1');
   }
 
-  // Search filter
   if (filters.search) {
     whereConditions.push(`(
       name LIKE ? OR
@@ -83,7 +65,6 @@ export const getAllDevelopers = async (filters = {}, pagination = {}) => {
     params.push(searchTerm, searchTerm, searchTerm, searchTerm);
   }
 
-  // Country filter
   if (filters.country) {
     whereConditions.push('country = ?');
     params.push(filters.country);
@@ -91,7 +72,6 @@ export const getAllDevelopers = async (filters = {}, pagination = {}) => {
 
   const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-  // Order By
   const orderBy = filters.orderBy || 'name';
   const order = (filters.order || 'ASC').toUpperCase();
   const validOrderBys = ['id', 'name', 'created_at', 'total_project', 'year_established'];
@@ -116,7 +96,6 @@ export const getAllDevelopers = async (filters = {}, pagination = {}) => {
 
   const [rows] = await pool.query(query, [...params, limit, offset]);
 
-  // Total count for pagination
   const countQuery = `SELECT COUNT(*) as total FROM developers ${whereClause};`;
   const [countResult] = await pool.query(countQuery, params);
   const total = countResult[0].total;
@@ -130,11 +109,6 @@ export const getAllDevelopers = async (filters = {}, pagination = {}) => {
   };
 };
 
-/**
- * Fetches a single developer by ID or slug
- * @param {string|number} slugOrId
- * @returns {object|null} - Developer object or null
- */
 export const getDeveloperByIdOrSlug = async (slugOrId) => {
   let query;
   let param;
@@ -151,23 +125,12 @@ export const getDeveloperByIdOrSlug = async (slugOrId) => {
   return rows[0] || null;
 };
 
-/**
- * Get developer by ID (admin access - all statuses)
- * @param {number} id
- * @returns {object|null}
- */
 export const getDeveloperById = async (id) => {
   const query = `SELECT * FROM developers WHERE id = ?;`;
   const [rows] = await pool.query(query, [id]);
   return rows[0] || null;
 };
 
-/**
- * Check if a slug/total_url already exists
- * @param {string} slug
- * @param {number} excludeId - ID to exclude from check (for updates)
- * @returns {boolean}
- */
 export const checkSlugExists = async (slug, excludeId = null) => {
   let query = `SELECT COUNT(*) as count FROM developers WHERE total_url = ?`;
   const params = [slug];
@@ -181,15 +144,6 @@ export const checkSlugExists = async (slug, excludeId = null) => {
   return rows[0].count > 0;
 };
 
-/* =========================================================
-   ADMIN CRUD OPERATIONS
-========================================================= */
-
-/**
- * Create a new developer
- * @param {object} developerData
- * @returns {object} - Created developer with ID
- */
 export const createDeveloper = async (developerData) => {
   const {
     name,
@@ -212,12 +166,10 @@ export const createDeveloper = async (developerData) => {
     status = 1
   } = developerData;
 
-  // Validate required fields
   if (!name) {
     throw new Error('Developer name is required');
   }
 
-  // Check if slug already exists
   if (total_url && await checkSlugExists(total_url)) {
     throw new Error('This slug/URL already exists');
   }
@@ -263,20 +215,12 @@ export const createDeveloper = async (developerData) => {
   }
 };
 
-/**
- * Update an existing developer
- * @param {number} id
- * @param {object} updateData
- * @returns {object} - Updated developer
- */
 export const updateDeveloper = async (id, updateData) => {
-  // Check if developer exists
   const existingDeveloper = await getDeveloperById(id);
   if (!existingDeveloper) {
     throw new Error('Developer not found');
   }
 
-  // Check if slug is being updated and if it already exists
   if (updateData.total_url && updateData.total_url !== existingDeveloper.total_url) {
     if (await checkSlugExists(updateData.total_url, id)) {
       throw new Error('This slug/URL already exists');
@@ -321,11 +265,6 @@ export const updateDeveloper = async (id, updateData) => {
   }
 };
 
-/**
- * Delete a developer (soft delete - set status to 0)
- * @param {number} id
- * @returns {boolean}
- */
 export const deleteDeveloper = async (id) => {
   const developer = await getDeveloperById(id);
   if (!developer) {
@@ -343,11 +282,6 @@ export const deleteDeveloper = async (id) => {
   }
 };
 
-/**
- * Permanently delete a developer (hard delete)
- * @param {number} id
- * @returns {boolean}
- */
 export const permanentDeleteDeveloper = async (id) => {
   const developer = await getDeveloperById(id);
   if (!developer) {
@@ -365,12 +299,6 @@ export const permanentDeleteDeveloper = async (id) => {
   }
 };
 
-/**
- * Get all developers for admin (includes inactive)
- * @param {object} filters
- * @param {object} pagination
- * @returns {object}
- */
 export const getAllDevelopersAdmin = async (filters = {}, pagination = {}) => {
   const page = parseInt(pagination.page) || 1;
   const limit = parseInt(pagination.limit) || 20;
@@ -379,13 +307,11 @@ export const getAllDevelopersAdmin = async (filters = {}, pagination = {}) => {
   let whereConditions = [];
   const params = [];
 
-  // Admin can see all statuses
   if (filters.status !== undefined && filters.status !== null) {
     whereConditions.push('status = ?');
     params.push(filters.status);
   }
 
-  // Search filter
   if (filters.search) {
     whereConditions.push(`(
       name LIKE ? OR
@@ -400,7 +326,6 @@ export const getAllDevelopersAdmin = async (filters = {}, pagination = {}) => {
 
   const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-  // Order By
   const orderBy = filters.orderBy || 'created_at';
   const order = (filters.order || 'DESC').toUpperCase();
   const validOrderBys = ['id', 'name', 'created_at', 'updated_at', 'total_project', 'status'];
@@ -418,7 +343,6 @@ export const getAllDevelopersAdmin = async (filters = {}, pagination = {}) => {
 
   const [rows] = await pool.query(query, [...params, limit, offset]);
 
-  // Total count for pagination
   const countQuery = `SELECT COUNT(*) as total FROM developers ${whereClause};`;
   const [countResult] = await pool.query(countQuery, params);
   const total = countResult[0].total;
@@ -432,12 +356,6 @@ export const getAllDevelopersAdmin = async (filters = {}, pagination = {}) => {
   };
 };
 
-/**
- * Bulk update developer status
- * @param {array} ids - Array of developer IDs
- * @param {number} status - New status (0 or 1)
- * @returns {boolean}
- */
 export const bulkUpdateStatus = async (ids, status) => {
   if (!Array.isArray(ids) || ids.length === 0) {
     throw new Error('Invalid IDs array');
@@ -455,10 +373,6 @@ export const bulkUpdateStatus = async (ids, status) => {
   }
 };
 
-/**
- * Get developer statistics
- * @returns {object}
- */
 export const getDeveloperStats = async () => {
   const query = `
     SELECT 
@@ -474,10 +388,6 @@ export const getDeveloperStats = async () => {
   const [rows] = await pool.query(query);
   return rows[0];
 };
-
-/* =========================================================
-   EXPORT ALL FUNCTIONS
-========================================================= */
 
 export default {
   createDeveloperTable,
