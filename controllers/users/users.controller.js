@@ -8,10 +8,6 @@ import catchAsyncErrors from "../../middleware/catchAsyncErrors.js";
 import ErrorHandler from "../../utils/errorHandler.js";
 import { sendToken, logout as jwtLogout, verifyJWT } from "../../utils/jwtToken.js";
 
-/* v=========================================================
-   CONFIGURATION
-========================================================= */
-
 const UPLOAD_FOLDERS = {
   user: 'uploads/users',
   admin: 'uploads/admins',
@@ -20,27 +16,19 @@ const UPLOAD_FOLDERS = {
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
-/* =========================================================
-   HELPER FUNCTIONS
-========================================================= */
-
 const deleteOldImage = async (imagePath) => {
-  if (!imagePath) return;
-  
+  if (!imagePath || imagePath.startsWith('http')) return;
   try {
-    if (imagePath.startsWith('http')) return;
     const cleanPath = imagePath.replace(/^\//, ''); 
     const fullPath = path.join(process.cwd(), 'public', cleanPath);
     await fs.unlink(fullPath);
   } catch (err) {
-    console.warn(`Could not delete old image: ${imagePath}. Error: ${err.message}`);
+    console.warn(`⚠️ Could not delete: ${imagePath}`);
   }
 };
 
 const getUploadFolder = (usertype) => {
-  const type = usertype?.toLowerCase();
-  if (type === 'admin') return UPLOAD_FOLDERS.admin;
-  return UPLOAD_FOLDERS.user;
+  return usertype?.toLowerCase() === 'admin' ? UPLOAD_FOLDERS.admin : UPLOAD_FOLDERS.user;
 };
 
 const sanitizeUser = (user) => {
@@ -50,27 +38,12 @@ const sanitizeUser = (user) => {
 };
 
 /* =========================================================
-   AUTHENTICATION
+   REGISTER USER
 ========================================================= */
 
-/**
- * Register new user - PRODUCTION READY
- * POST /api/users/register
- * Public
- */
 export const registerUser = catchAsyncErrors(async (req, res, next) => {
-  const { 
-    full_name, 
-    name, 
-    email, 
-    password 
-  } = req.body;
+  const { full_name, name, email, password, phone } = req.body;
 
-  // Validate required fields
-  if (!full_name && !name) {
-    return next(new ErrorHandler('Full name is required', 400));
-  }
-  
   if (!email || !email.trim()) {
     return next(new ErrorHandler('Email is required', 400));
   }
@@ -83,78 +56,82 @@ export const registerUser = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('Password must be at least 6 characters', 400));
   }
 
-  // Validate usertype
-  const usertype = req.body.usertype || UserModel.USER_TYPES.USER;
-  const allowedPublicTypes = [UserModel.USER_TYPES.USER];
-  
-  if (!allowedPublicTypes.includes(usertype)) {
-    return next(new ErrorHandler(`Invalid user type. Only '${UserModel.USER_TYPES.USER}' allowed.`, 400));
-  }
-
-  // Check existing user
   const existingUser = await UserModel.getUserByEmail(email.trim());
   if (existingUser) {
     return next(new ErrorHandler('Email already registered', 400));
   }
 
-  // Prepare clean user data
   const userData = {
-    full_name: (full_name || name)?.trim(),
-    name: (name || full_name)?.trim(),
     email: email.trim().toLowerCase(),
     password: password,
-    usertype: usertype,
+    usertype: req.body.usertype || UserModel.USER_TYPES.USER,
     status: 1,
     public_permision: 1
   };
 
-  // Add optional fields ONLY if they have values
+  if (full_name && full_name.trim()) userData.full_name = full_name.trim();
+  if (name && name.trim()) userData.name = name.trim();
+  
+  if (!userData.full_name && !userData.name) {
+    const emailUsername = email.split('@')[0];
+    userData.name = emailUsername;
+    userData.full_name = emailUsername;
+  }
+
+  if (phone && phone.trim()) userData.phone = phone.trim();
+
   const optionalFields = [
-    'phone', 'mobile_phone', 'salutation', 'first_name', 'last_name',
+    'salutation', 'first_name', 'last_name', 'mobile_phone', 
     'nationality', 'department', 'city', 'about', 'country',
     'treatment', 'length_of_service', 'other_email', 'fax',
     'facebook', 'twitter', 'linkedin', 'instagram', 'website',
-    'category', 'seo_title', 'seo_keywork', 'seo_description',
-    'marital_status', 'languages', 'contact_type', 'dob', 'gender'
+    'category', 'marital_status', 'languages', 'contact_type', 
+    'dob', 'gender'
   ];
 
   for (const field of optionalFields) {
     const value = req.body[field];
-    
     if (value !== undefined && value !== null && value !== '') {
       if (field === 'country') {
         userData[field] = parseInt(value) || 0;
       } else if (typeof value === 'string') {
         const trimmed = value.trim();
-        if (trimmed !== '') {
-          userData[field] = trimmed;
-        }
+        if (trimmed !== '') userData[field] = trimmed;
       } else {
         userData[field] = value;
       }
     }
   }
 
-  // Handle file upload
   if (req.file) {
-    const uploadFolder = getUploadFolder(usertype);
+    const uploadFolder = getUploadFolder(userData.usertype);
     userData.image_icon = `${uploadFolder}/${req.file.filename}`;
   }
 
-  console.log('Register user data:', Object.keys(userData));
+  console.log('✅ Registering:', userData.email);
 
-  // Create user
-  const user = await UserModel.createUser(userData);
-
-  // Send response with token
-  sendToken(user, 201, res, 'user');
+  try {
+    const user = await UserModel.createUser(userData);
+    sendToken(user, 201, res, 'user');
+  } catch (error) {
+    console.error('❌ Registration error:', error);
+    
+    if (error.code === 'ER_DUP_ENTRY') {
+      return next(new ErrorHandler('Email already registered', 400));
+    }
+    
+    if (error.code === 'ER_NO_DEFAULT_FOR_FIELD') {
+      return next(new ErrorHandler('Database error. Please contact support.', 500));
+    }
+    
+    throw error;
+  }
 });
 
-/**
- * Login User
- * POST /api/users/login
- * Public
- */
+/* =========================================================
+   LOGIN USER
+========================================================= */
+
 export const loginUser = catchAsyncErrors(async (req, res, next) => {
   const { email, password } = req.body;
 
@@ -168,9 +145,8 @@ export const loginUser = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('Invalid email or password', 401));
   }
 
-  const usertype = user.usertype?.toLowerCase();
-  if (usertype === 'admin') {
-    return next(new ErrorHandler('Access denied. Use admin login for administrator accounts.', 403));
+  if (user.usertype?.toLowerCase() === 'admin') {
+    return next(new ErrorHandler('Use admin login endpoint', 403));
   }
 
   if (!user.password) {
@@ -184,19 +160,17 @@ export const loginUser = catchAsyncErrors(async (req, res, next) => {
   }
 
   if (user.status !== 1) {
-    return next(new ErrorHandler('Your account is inactive. Please contact admin', 403));
+    return next(new ErrorHandler('Account inactive. Contact admin', 403));
   }
 
   const fullUser = await UserModel.getUserById(user.id, false);
-
   sendToken(fullUser, 200, res, 'user');
 });
 
-/**
- * Admin Login
- * POST /api/users/admin/login
- * Public
- */
+/* =========================================================
+   ADMIN LOGIN
+========================================================= */
+
 export const adminLogin = catchAsyncErrors(async (req, res, next) => {
   const { email, password } = req.body;
 
@@ -210,13 +184,12 @@ export const adminLogin = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('Invalid email or password', 401));
   }
 
-  const usertype = user.usertype?.toLowerCase();
-  if (usertype !== 'admin') {
-    return next(new ErrorHandler('Access denied. Admin only', 403));
+  if (user.usertype?.toLowerCase() !== 'admin') {
+    return next(new ErrorHandler('Admin access required', 403));
   }
 
   if (!user.password) {
-    return next(new ErrorHandler('Password not set. Contact administrator', 401));
+    return next(new ErrorHandler('Password not set', 401));
   }
 
   const isPasswordMatched = await UserModel.comparePassword(password, user.password);
@@ -226,87 +199,97 @@ export const adminLogin = catchAsyncErrors(async (req, res, next) => {
   }
 
   if (user.status !== 1) {
-    return next(new ErrorHandler('Your account is inactive', 403));
+    return next(new ErrorHandler('Account inactive', 403));
   }
 
   const fullUser = await UserModel.getUserById(user.id, true);
-
   sendToken(fullUser, 200, res, 'admin');
 });
 
-/**
- * Verify Admin Token
- * GET /api/users/admin/verify-token
- * Public (but requires token)
- */
-export const verifyAdminToken = catchAsyncErrors(async (req, res, next) => {
-  const token = req.cookies.adminToken || 
-                req.cookies.userToken ||
-                req.headers.authorization?.replace('Bearer ', '');
+/* =========================================================
+   GOOGLE AUTH
+========================================================= */
 
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: 'No token provided',
-      isAuthenticated: false
-    });
-  }
-
-  try {
-    const decoded = verifyJWT(token, 'admin');
-
-    const user = await UserModel.getUserById(decoded.id, true);
-
-    if (!user) {
-      return next(new ErrorHandler('User not found', 404));
-    }
-
-    const usertype = user.usertype?.toLowerCase();
-    if (usertype !== 'admin') {
-      return next(new ErrorHandler('Access denied. Admin only', 403));
-    }
-
-    if (user.status !== 1) {
-      return next(new ErrorHandler('Account has been deactivated', 401));
-    }
-
-    const safeUser = sanitizeUser(user);
-
-    res.status(200).json({
-      success: true,
-      message: 'Token is valid',
-      isAuthenticated: true,
-      admin: safeUser,
-      tokenInfo: {
-        id: decoded.id,
-        email: decoded.email,
-        usertype: user.usertype,
-        expiresAt: new Date(decoded.exp * 1000).toISOString()
-      }
-    });
-
-  } catch (error) {
-    let message = 'Invalid token';
-    if (error.name === 'TokenExpiredError') {
-      message = 'Token expired';
-    } else if (error.name === 'JsonWebTokenError') {
-      message = 'Invalid token signature';
-    }
-    
-    return next(new ErrorHandler(message, 401, error));
-  }
-});
-
-/**
- * Google Login/Register
- * POST /api/users/google-auth
- * Public
- */
 export const googleAuth = catchAsyncErrors(async (req, res, next) => {
   const { credential } = req.body;
 
   if (!credential) {
-    return next(new ErrorHandler('Google credential is required', 400));
+    return next(new ErrorHandler('Google credential required', 400));
+  }
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    const { 
+      sub: googleId, 
+      email, 
+      name, 
+      picture,
+      given_name: firstName,
+      family_name: lastName
+    } = payload;
+
+    console.log('✅ Google verified:', email);
+
+    let user = await UserModel.getUserByProviderIdAndProvider(googleId, 'google');
+
+    if (!user) {
+      const existingUser = await UserModel.getUserByEmail(email);
+      
+      if (existingUser && existingUser.provider !== 'google') {
+        return next(new ErrorHandler('Email registered with password. Use email/password login', 400));
+      }
+
+      user = await UserModel.createGoogleUser({
+        full_name: name,
+        name: name,
+        first_name: firstName,
+        last_name: lastName,
+        email: email,
+        provider_id: googleId,
+        image_icon: picture,
+        usertype: UserModel.USER_TYPES.USER,
+        status: 1,
+        public_permision: 1
+      });
+
+      console.log('✅ Google user created:', user.email);
+    }
+
+    if (user.status !== 1) {
+      return next(new ErrorHandler('Account inactive. Contact admin', 403));
+    }
+
+    if (user.usertype?.toLowerCase() === 'admin') {
+      return next(new ErrorHandler('Admin must use admin portal', 403));
+    }
+
+    const fullUser = await UserModel.getUserById(user.id, false);
+    sendToken(fullUser, 200, res, 'user');
+
+  } catch (error) {
+    console.error('❌ Google auth error:', error);
+    return next(new ErrorHandler('Google authentication failed', 401, error));
+  }
+});
+
+/* =========================================================
+   ADMIN GOOGLE AUTH
+========================================================= */
+
+export const adminGoogleAuth = catchAsyncErrors(async (req, res, next) => {
+  const { credential, isAdminLogin } = req.body;
+
+  if (!credential) {
+    return next(new ErrorHandler('Google credential required', 400));
+  }
+
+  if (!isAdminLogin) {
+    return next(new ErrorHandler('Admin endpoint only', 403));
   }
 
   try {
@@ -322,170 +305,150 @@ export const googleAuth = catchAsyncErrors(async (req, res, next) => {
 
     if (!user) {
       const existingUser = await UserModel.getUserByEmail(email);
-      
-      if (existingUser && existingUser.provider !== 'google') {
-        return next(new ErrorHandler('Email already registered. Please login with email/password', 400));
-      }
 
-      user = await UserModel.createGoogleUser({
-        full_name: name,
-        name: name,
-        email: email,
-        provider_id: googleId,
-        image_icon: picture,
-        usertype: UserModel.USER_TYPES.USER,
-        status: 1,
-        public_permision: 1
-      });
+      if (existingUser) {
+        const usertype = existingUser.usertype?.toLowerCase();
+
+        if (usertype !== 'admin') {
+          return next(new ErrorHandler('Not registered as admin', 403));
+        }
+
+        if (existingUser.provider !== 'google') {
+          return next(new ErrorHandler('Admin uses email/password login', 400));
+        }
+      } else {
+        return next(new ErrorHandler('Google account not registered as admin', 403));
+      }
+    }
+
+    if (user.usertype?.toLowerCase() !== 'admin') {
+      return next(new ErrorHandler('Admin access required', 403));
     }
 
     if (user.status !== 1) {
-      return next(new ErrorHandler('Your account is inactive. Please contact admin', 403));
+      return next(new ErrorHandler('Account inactive', 403));
     }
 
-    const fullUser = await UserModel.getUserById(user.id, false);
-
-    sendToken(fullUser, 200, res, 'user');
-
+    const fullUser = await UserModel.getUserById(user.id, true);
+    sendToken(fullUser, 200, res, 'admin');
   } catch (error) {
+    console.error('❌ Admin Google auth error:', error);
     return next(new ErrorHandler('Google authentication failed', 401, error));
   }
 });
 
-/**
- * Logout - Enhanced Production Ready
- * POST /api/users/logout
- * Public (can be called by anyone with or without token)
- * 
- * Features:
- * - Clears both user and admin cookies
- * - Multiple cookie clearing strategies
- * - Frontend localStorage clearing signal
- * - Audit logging support
- */
+/* =========================================================
+   VERIFY ADMIN TOKEN
+========================================================= */
+
+export const verifyAdminToken = catchAsyncErrors(async (req, res, next) => {
+  const token = req.cookies.adminToken || 
+                req.cookies.userToken ||
+                req.headers.authorization?.replace('Bearer ', '');
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: 'No token provided',
+      isAuthenticated: false
+    });
+  }
+
+  try {
+    const decoded = verifyJWT(token, 'admin');
+    const user = await UserModel.getUserById(decoded.id, true);
+
+    if (!user) {
+      return next(new ErrorHandler('User not found', 404));
+    }
+
+    if (user.usertype?.toLowerCase() !== 'admin') {
+      return next(new ErrorHandler('Admin only', 403));
+    }
+
+    if (user.status !== 1) {
+      return next(new ErrorHandler('Account deactivated', 401));
+    }
+
+    const safeUser = sanitizeUser(user);
+
+    res.status(200).json({
+      success: true,
+      message: 'Token valid',
+      isAuthenticated: true,
+      admin: safeUser,
+      tokenInfo: {
+        id: decoded.id,
+        email: decoded.email,
+        usertype: user.usertype,
+        expiresAt: new Date(decoded.exp * 1000).toISOString()
+      }
+    });
+
+  } catch (error) {
+    let message = 'Invalid token';
+    if (error.name === 'TokenExpiredError') message = 'Token expired';
+    else if (error.name === 'JsonWebTokenError') message = 'Invalid signature';
+    
+    return next(new ErrorHandler(message, 401, error));
+  }
+});
+
+/* =========================================================
+   LOGOUT
+========================================================= */
+
 export const logout = catchAsyncErrors(async (req, res, next) => {
   try {
-    // Step 1: Use jwtLogout utility function
     jwtLogout(res);
     
-    // Step 2: Explicitly clear all auth cookies (backup strategy)
     const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       path: '/',
-      expires: new Date(0), // Set expiry to past date
+      expires: new Date(0),
       maxAge: 0
     };
     
-    // Clear user token
     res.cookie('userToken', '', cookieOptions);
-    
-    // Clear admin token
     res.cookie('adminToken', '', cookieOptions);
-    
-    // Clear refresh token (if you have one)
     res.cookie('refreshToken', '', cookieOptions);
     
-    // Step 3: Log logout event for audit trail (optional)
     if (req.user) {
-      console.log(`[LOGOUT] User: ${req.user.email} (ID: ${req.user.id}) logged out at ${new Date().toISOString()}`);
-    } else {
-      console.log(`[LOGOUT] Anonymous logout request at ${new Date().toISOString()}`);
+      console.log(`✅ Logout: ${req.user.email}`);
     }
     
-    // Step 4: Send success response with frontend instructions
     res.status(200).json({
       success: true,
       message: 'Logged out successfully',
-      clearStorage: true,      // Signal to clear localStorage
-      clearSessionStorage: true, // Signal to clear sessionStorage
-      clearAll: true,          // Signal to clear all auth data
-      timestamp: new Date().toISOString(),
-      redirectTo: '/login'     // Optional: suggest redirect path
+      clearStorage: true,
+      clearSessionStorage: true,
+      clearAll: true,
+      timestamp: new Date().toISOString()
     });
     
   } catch (error) {
-    console.error('[LOGOUT ERROR]:', error);
+    console.error('❌ Logout error:', error);
     
-    // Even if error occurs, still try to clear cookies using fallback
     res.clearCookie('userToken', { path: '/' });
     res.clearCookie('adminToken', { path: '/' });
     res.clearCookie('refreshToken', { path: '/' });
     
-    // Still return success since cookies are cleared
     res.status(200).json({
       success: true,
-      message: 'Logged out (cookies cleared despite error)',
+      message: 'Logged out',
       clearStorage: true,
-      clearAll: true,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      clearAll: true
     });
   }
 });
-
-/**
- * Logout from all devices (Optional Advanced Feature)
- * POST /api/users/logout-all
- * Private (requires authentication)
- * 
- * Use case: User suspects account compromise
- */
-export const logoutAllDevices = catchAsyncErrors(async (req, res, next) => {
-  const userId = req.user.id;
-  const userEmail = req.user.email;
-  
-  try {
-    // Option 1: Increment token version in database
-    // This would invalidate all existing tokens
-    // await UserModel.incrementTokenVersion(userId);
-    
-    // Option 2: Update last_logout timestamp
-    // Tokens issued before this time would be invalid
-    await UserModel.updateUser(userId, { 
-      last_force_logout: new Date() 
-    });
-    
-    // Clear current device cookies
-    jwtLogout(res);
-    
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      path: '/',
-      expires: new Date(0)
-    };
-    
-    res.cookie('userToken', '', cookieOptions);
-    res.cookie('adminToken', '', cookieOptions);
-    res.cookie('refreshToken', '', cookieOptions);
-    
-    console.log(`[LOGOUT ALL] User: ${userEmail} (ID: ${userId}) logged out from all devices`);
-    
-    res.status(200).json({
-      success: true,
-      message: 'Logged out from all devices successfully',
-      clearStorage: true,
-      clearAll: true,
-      devicesCleared: true
-    });
-    
-  } catch (error) {
-    console.error('[LOGOUT ALL ERROR]:', error);
-    return next(new ErrorHandler('Failed to logout from all devices', 500));
-  }
-});
+// ... (previous code continues)
 
 /* =========================================================
    PROFILE MANAGEMENT
 ========================================================= */
 
-/**
- * Get current user profile
- * GET /api/users/profile
- * Private
- */
 export const getProfile = catchAsyncErrors(async (req, res, next) => {
   const user = await UserModel.getUserById(req.user.id, false);
 
@@ -499,16 +462,10 @@ export const getProfile = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Update profile - PRODUCTION READY
- * PUT /api/users/profile
- * Private
- */
 export const updateProfile = catchAsyncErrors(async (req, res, next) => {
   const userId = req.user.id;
   const updateData = { ...req.body };
 
-  // Remove protected fields
   delete updateData.password;
   delete updateData.email;
   delete updateData.usertype;
@@ -521,7 +478,6 @@ export const updateProfile = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('User not found', 404));
   }
 
-  // Handle file upload
   if (req.file) {
     if (currentUser.image_icon && !currentUser.image_icon.startsWith('http') && !currentUser.image_icon.includes('default.jpg')) {
       await deleteOldImage(currentUser.image_icon);
@@ -539,11 +495,6 @@ export const updateProfile = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Update password
- * PUT /api/users/update-password
- * Private
- */
 export const updatePassword = catchAsyncErrors(async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
 
@@ -576,14 +527,9 @@ export const updatePassword = catchAsyncErrors(async (req, res, next) => {
 });
 
 /* =========================================================
-   PUBLIC - USER LISTINGS
+   PUBLIC USER ROUTES
 ========================================================= */
 
-/**
- * Get public list of users (only 'user' type)
- * GET /api/users/public/type/:usertype
- * Public
- */
 export const getPublicUsersByType = catchAsyncErrors(async (req, res, next) => {
   const usertype = req.params.usertype;
   const { search, page, limit, orderBy, order } = req.query;
@@ -607,11 +553,6 @@ export const getPublicUsersByType = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Get public user by ID
- * GET /api/users/public/:id
- * Public
- */
 export const getPublicUserById = catchAsyncErrors(async (req, res, next) => {
   const user = await UserModel.getUserById(req.params.id, false);
 
@@ -620,7 +561,7 @@ export const getPublicUserById = catchAsyncErrors(async (req, res, next) => {
   }
 
   if (user.usertype.toLowerCase() !== UserModel.USER_TYPES.USER.toLowerCase()) {
-    return next(new ErrorHandler('Access denied. Only regular user profiles are publicly accessible.', 403));
+    return next(new ErrorHandler('Access denied', 403));
   }
 
   res.status(200).json({
@@ -630,14 +571,9 @@ export const getPublicUserById = catchAsyncErrors(async (req, res, next) => {
 });
 
 /* =========================================================
-   ADMIN - USER MANAGEMENT
+   ADMIN USER MANAGEMENT
 ========================================================= */
 
-/**
- * Get all users (admin)
- * GET /api/users/admin/all
- * Admin only
- */
 export const getAdminAllUsers = catchAsyncErrors(async (req, res, next) => {
   const { search, usertype, status, page, limit, orderBy, order } = req.query;
   
@@ -655,19 +591,9 @@ export const getAdminAllUsers = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Get users by type (admin)
- * GET /api/users/admin/type/:usertype
- * Admin only
- */
 export const getAdminUsersByType = catchAsyncErrors(async (req, res, next) => {
   const { usertype } = req.params;
   const { search, status, page, limit, orderBy, order } = req.query;
-
-  const allowedTypes = [UserModel.USER_TYPES.USER.toLowerCase(), UserModel.USER_TYPES.ADMIN.toLowerCase()];
-  if (!allowedTypes.includes(usertype.toLowerCase())) {
-    return next(new ErrorHandler(`Invalid user type. Allowed: '${UserModel.USER_TYPES.USER}', '${UserModel.USER_TYPES.ADMIN}'.`, 400));
-  }
 
   const usersData = await UserModel.getUsers({
     usertype, 
@@ -683,11 +609,6 @@ export const getAdminUsersByType = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Get single user by ID (admin)
- * GET /api/users/admin/:id
- * Admin only
- */
 export const getAdminUserById = catchAsyncErrors(async (req, res, next) => {
   const user = await UserModel.getUserById(req.params.id, true);
 
@@ -701,11 +622,6 @@ export const getAdminUserById = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Create admin
- * POST /api/users/admin/admins
- * Admin only
- */
 export const createAdmin = catchAsyncErrors(async (req, res, next) => {
   const { email, password } = req.body;
 
@@ -734,11 +650,6 @@ export const createAdmin = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Update user (Admin) - PRODUCTION READY
- * PUT /api/users/admin/:id
- * Admin only
- */
 export const updateAdminUser = catchAsyncErrors(async (req, res, next) => {
   const userId = req.params.id;
   const updateData = { ...req.body };
@@ -748,17 +659,11 @@ export const updateAdminUser = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('User not found', 404));
   }
 
-  // Remove protected fields
   delete updateData.email;
-  
-  // Don't update password through this endpoint
-  if (updateData.password) {
-    delete updateData.password; 
-  }
+  delete updateData.password;
 
-  // Handle file upload
   if (req.file) {
-    if (existingUser.image_icon && !existingUser.image_icon.startsWith('http') && !existingUser.image_icon.includes('default.jpg')) {
+    if (existingUser.image_icon && !existingUser.image_icon.startsWith('http')) {
       await deleteOldImage(existingUser.image_icon);
     }
     const uploadFolder = getUploadFolder(existingUser.usertype);
@@ -774,11 +679,6 @@ export const updateAdminUser = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Update user status (Admin)
- * PATCH /api/users/admin/:id/status
- * Admin only
- */
 export const updateAdminUserStatus = catchAsyncErrors(async (req, res, next) => {
   const { status } = req.body;
   const userId = req.params.id;
@@ -804,11 +704,6 @@ export const updateAdminUserStatus = catchAsyncErrors(async (req, res, next) => 
   });
 });
 
-/**
- * Delete user (Admin)
- * DELETE /api/users/admin/:id
- * Admin only
- */
 export const deleteAdminUser = catchAsyncErrors(async (req, res, next) => {
   const userId = req.params.id;
 
@@ -821,8 +716,7 @@ export const deleteAdminUser = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('You cannot delete your own account', 400));
   }
 
-  // Delete image if exists
-  if (user.image_icon && !user.image_icon.startsWith('http') && !user.image_icon.includes('default.jpg')) {
+  if (user.image_icon && !user.image_icon.startsWith('http')) {
     await deleteOldImage(user.image_icon);
   }
 
@@ -838,11 +732,6 @@ export const deleteAdminUser = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Search users (Admin)
- * GET /api/users/admin/search
- * Admin only
- */
 export const searchAdminUsers = catchAsyncErrors(async (req, res, next) => {
   const { q, usertype, page, limit, orderBy, order } = req.query;
 
@@ -850,16 +739,9 @@ export const searchAdminUsers = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler('Search term must be at least 2 characters', 400));
   }
 
-  let filteredUsertype = usertype;
-  const allowedTypes = [UserModel.USER_TYPES.USER.toLowerCase(), UserModel.USER_TYPES.ADMIN.toLowerCase()];
-  
-  if (usertype && !allowedTypes.includes(usertype.toLowerCase())) {
-    filteredUsertype = null;
-  }
-
   const usersData = await UserModel.getUsers({
     search: q.trim(), 
-    usertype: filteredUsertype, 
+    usertype, 
     orderBy, 
     order
   }, { page, limit }, true);
@@ -870,11 +752,6 @@ export const searchAdminUsers = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Get user statistics (Admin)
- * GET /api/users/admin/stats
- * Admin only
- */
 export const getUserStats = catchAsyncErrors(async (req, res, next) => {
   const stats = await UserModel.getUserStats();
   const dashboard = await UserModel.getDashboardStats();
@@ -890,11 +767,6 @@ export const getUserStats = catchAsyncErrors(async (req, res, next) => {
    PASSWORD RESET
 ========================================================= */
 
-/**
- * Forgot password
- * POST /api/users/forgot-password
- * Public
- */
 export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
   const { email } = req.body;
 
@@ -925,11 +797,6 @@ export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-/**
- * Reset password
- * POST /api/users/reset-password
- * Public
- */
 export const resetPassword = catchAsyncErrors(async (req, res, next) => {
   const { token, newPassword } = req.body;
 

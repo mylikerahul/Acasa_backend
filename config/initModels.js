@@ -23,6 +23,7 @@ import * as CompanyModel from '../models/company/company.model.js';
 import * as BlogsModel from '../models/blogs/blogs.model.js';
 import * as BlocksModel from '../models/blocks/blocks.model.js';
 import * as AreasModel from '../models/areas/areas.model.js';
+import * as initializeDatabase  from '../utils/initDatabase.js';
 
 // --- Level 2: Primary Entity Tables (Depend on Level 1) ---
 import * as UserPermissionsModel from '../models/user/user_permissions.model.js';
@@ -104,6 +105,11 @@ const SCHEMA_CONFIG = [
       {
         name: 'cities',
         init: CitiesModel.createCitiesTable,
+        description: 'Cities master data'
+      },
+      {
+        name: 'cities',
+        init: initializeDatabase,
         description: 'Cities master data'
       },
       {
